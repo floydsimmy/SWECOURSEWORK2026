@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+.venv/
+
+# Pygame / raw asset sources
+*.psd
+*.ai
+
+# OS junk
+.DS_Store
+Thumbs.db
