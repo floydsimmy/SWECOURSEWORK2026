@@ -14,8 +14,10 @@ This sprint prioritises functional correctness, simplicity, testability.
 No advanced features will be implemented yet.
 
 Sprint 1 Scope 
-To reduce complexity, the game will support exactly 3 players for Sprint 1.
-This allows easier debugging, simpler dealing logic, faster testing.
+The dealing logic works for different player counts
+Turn rotation is properly validated
+QA can test realistic gameplay scenarios
+The system meets the original functional requirements early.
 
 Features 
 Game Setup: The system randomly selects 1 suspect, 1 weapon, 1 room. The remaining cards are shuffled and dealt evenly to the 3 players.
@@ -61,6 +63,7 @@ Define MVP scope and requirements	     Abdulrahman
 Maintain backlog and acceptance 	     Abdulrahman 
 System testing and debugging  	         Nasser
 Sprint documentation and tracking	     Adam
+
 
 
 
