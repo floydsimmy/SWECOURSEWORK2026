@@ -32,13 +32,13 @@ F4	 Player must be able to select a room
 F5   Player must be able to make a suggestion using the current room
 F6 	 Other players must refute if they hold a matching card
 F7	 Player should be able to make an accusation
-F8	 Incorrect accusations prevent further accusations by that player
+F8   Incorrect accusations prevent further accusations by that player
 
 Non-Functional Requirements
-NF1 	CLI provide clear instructions and feedback
+NF1   CLI provide clear instructions and feedback
 NF2	  Game run without crashing 
-NF3 	Separate game logic from user interface
-NF4 	System be simple for QA to test 
+NF3   Separate game logic from user interface
+NF4   System be simple for QA to test 
 
 User Stories
 US1: As a player, I want a randomly generated mystery so each game feels different.
@@ -63,6 +63,7 @@ Define MVP scope and requirements	     Abdulrahman
 Maintain backlog and acceptance 	     Abdulrahman 
 System testing and debugging  	         Nasser
 Sprint documentation and tracking	     Adam
+
 
 
 
