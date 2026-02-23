@@ -1,11 +1,11 @@
 #Sprint 1
 
 Team Roles
-Role                	              Name	             Member Responsibility
+Role                	             Name	             Member Responsibility
 Technical Lead & Integrator        	Floyd	         System structure and integration
 Game Logic Engineer	                Maysarah	     Core rules and mechanics
-Product Owner	                      Abdulrahman  	 Requirements, scope, backlog 
-QA Lead	                            Nasser	       Testing, validation, bug reporting
+Product Owner	                    Abdulrahman  	 Requirements, scope, backlog 
+QA Lead	                            Nasser	         Testing, validation, bug reporting
 Scrum Master & Documentation       	Adam	         Sprint coordination and documentation
 
 Sprint 1 Goal
@@ -49,18 +49,19 @@ US7: As a player, I want to make an accusation when I believe I solved the myste
 US8: As a player, I should be penalised for an incorrect accusation to maintain fairness.
 
 Sprint 1 Backlog
-Task	                                    Owner
+Task	                                  Owner
 Implement game setup and solutions	     Maysarah
 Implement card shuffle 	                 Maysarah
-Create turn loop and flow	               Floyd
-Implement suggestion/refutation logic	   Maysarah
+Create turn loop and flow	             Floyd
+Implement suggestion/refutation logic	 Maysarah
 Implement accusation logic	             Maysarah
 Build CLI prompts and menus	             Floyd
-Input validation	                       Floyd
-Define MVP scope and requirements	       Abdulrahman 
-Maintain backlog and acceptance 	       Abdulrahman 
+Input validation	                     Floyd
+Define MVP scope and requirements	     Abdulrahman 
+Maintain backlog and acceptance 	     Abdulrahman 
 System testing and debugging  	         Nasser
-Sprint documentation and tracking	       Adam
+Sprint documentation and tracking	     Adam
+
 
 
 
