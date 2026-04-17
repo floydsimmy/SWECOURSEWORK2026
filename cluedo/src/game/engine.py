@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from game.deck import ROOMS, create_deck, deal_cards, select_solution
+from game.deck import ROOMS, SUSPECTS, WEAPONS, create_deck, deal_cards, select_solution
 from game.models import AccusationResult, Card, GameState, Player, RefuteResult
 
 
@@ -24,18 +24,23 @@ def new_game(player_names: list[str]) -> GameState:
 
     Args:
         player_names: Display names for each player. Must contain between
-                      3 and 6 names (inclusive).
+                      3 and 6 unique, non-empty names (inclusive).
 
     Returns:
         A fully initialised :class:`GameState` with ``started=True``.
 
     Raises:
-        ValueError: If fewer than 3 or more than 6 player names are supplied.
+        ValueError: If fewer than 3 or more than 6 player names are supplied,
+                    any name is empty, or names contain duplicates.
     """
     if len(player_names) < 3 or len(player_names) > 6:
         raise ValueError(
             f"Cluedo requires 3–6 players, but {len(player_names)} were given."
         )
+    if any(not name.strip() for name in player_names):
+        raise ValueError("Player names must not be empty.")
+    if len(player_names) != len(set(player_names)):
+        raise ValueError("Player names must be unique.")
 
     deck = create_deck()
     solution, remaining = select_solution(deck)
@@ -83,22 +88,34 @@ def next_turn(state: GameState) -> None:
             return
 
 
-def move_to_room(state: GameState, player: Player, room: str) -> None:  # noqa: ARG001
+def move_to_room(state: GameState, player: Player, room: str) -> None:
     """Move a player into the specified room.
 
     Args:
-        state: The current game state (unused directly, kept for API consistency).
-        player: The player to move.
+        state: The current game state.
+        player: The player to move. Must be the current player.
         room: The destination room name. Must be one of the canonical :data:`ROOMS`.
 
     Raises:
-        ValueError: If ``room`` is not a recognised room name.
+        ValueError: If the game is over, it is not this player's turn, or
+                    ``room`` is not a recognised room name.
     """
+    if state.game_over:
+        raise ValueError("Game is already over.")
+    current = get_current_player(state)
+    if current is not player:
+        raise ValueError(f"It is {current.name}'s turn, not {player.name}'s.")
     if room not in ROOMS:
         raise ValueError(
             f"'{room}' is not a valid room. Valid rooms are: {ROOMS}"
         )
     player.current_room = room
+    state.turn_history.append({
+        "action": "move",
+        "player": player.name,
+        "details": {"room": room},
+        "result": {},
+    })
 
 
 def make_suggestion(
@@ -112,23 +129,40 @@ def make_suggestion(
     The room used in the suggestion is the player's current room. Other
     players are checked in clockwise (turn-order) sequence; the first
     player who holds a matching card (suspect, weapon, or the room) reveals
-    one such card. Eliminated players are skipped.
+    one such card. Eliminated players are skipped. The turn does NOT advance
+    after a suggestion — the player may still wish to accuse.
 
     Args:
         state: The current game state.
-        player: The player making the suggestion. Must currently be in a room.
-        suspect: Name of the suspected character.
-        weapon: Name of the suspected weapon.
+        player: The player making the suggestion. Must be the current player
+                and must currently be in a room.
+        suspect: Name of the suspected character. Must be in :data:`SUSPECTS`.
+        weapon: Name of the suspected weapon. Must be in :data:`WEAPONS`.
 
     Returns:
         A :class:`RefuteResult` indicating whether the suggestion was refuted
         and, if so, who refuted it and which card they showed.
 
     Raises:
-        ValueError: If ``player`` is not currently in any room.
+        ValueError: If the game is over, it is not this player's turn,
+                    the player is eliminated, the suspect or weapon is invalid,
+                    or the player is not currently in any room.
     """
+    if state.game_over:
+        raise ValueError("Game is already over.")
+    current = get_current_player(state)
+    if current is not player:
+        raise ValueError(f"It is {current.name}'s turn, not {player.name}'s.")
     if player.is_eliminated:
         raise ValueError(f"{player.name} is eliminated and cannot make a suggestion.")
+    if suspect not in SUSPECTS:
+        raise ValueError(
+            f"'{suspect}' is not a valid suspect. Valid suspects are: {SUSPECTS}"
+        )
+    if weapon not in WEAPONS:
+        raise ValueError(
+            f"'{weapon}' is not a valid weapon. Valid weapons are: {WEAPONS}"
+        )
     if player.current_room is None:
         raise ValueError("Player must be in a room to make a suggestion.")
 
@@ -136,6 +170,7 @@ def make_suggestion(
     current_index = state.players.index(player)
     num_players = len(state.players)
 
+    result: RefuteResult = RefuteResult(refuted=False)
     for offset in range(1, num_players):
         check_index = (current_index + offset) % num_players
         other = state.players[check_index]
@@ -151,13 +186,23 @@ def make_suggestion(
         ]
 
         if matching:
-            return RefuteResult(
+            result = RefuteResult(
                 refuted=True,
                 refuting_player=other.name,
                 card_shown=matching[0],
             )
+            break
 
-    return RefuteResult(refuted=False)
+    state.turn_history.append({
+        "action": "suggestion",
+        "player": player.name,
+        "details": {"suspect": suspect, "weapon": weapon, "room": room},
+        "result": {
+            "refuted": result.refuted,
+            "refuting_player": result.refuting_player,
+        },
+    })
+    return result
 
 
 def make_accusation(
@@ -171,21 +216,44 @@ def make_accusation(
 
     If all three parts of the accusation match the solution exactly the
     accusation is correct and the player wins. If any part is wrong the
-    player is eliminated (``is_eliminated`` set to ``True``).
+    player is eliminated (``is_eliminated`` set to ``True``). The turn
+    automatically advances to the next active player after any accusation.
 
     Args:
         state: The current game state containing the solution.
-        player: The player making the accusation.
-        suspect: Name of the suspected character.
-        weapon: Name of the suspected weapon.
-        room: Name of the suspected room.
+        player: The player making the accusation. Must be the current player.
+        suspect: Name of the suspected character. Must be in :data:`SUSPECTS`.
+        weapon: Name of the suspected weapon. Must be in :data:`WEAPONS`.
+        room: Name of the suspected room. Must be in :data:`ROOMS`.
 
     Returns:
         An :class:`AccusationResult` with ``correct=True`` for a winning
         accusation, or ``correct=False`` (and the player eliminated) otherwise.
+
+    Raises:
+        ValueError: If the game is over, it is not this player's turn,
+                    the player is already eliminated, or any of the three
+                    accusation values are not valid.
     """
+    if state.game_over:
+        raise ValueError("Game is already over.")
+    current = get_current_player(state)
+    if current is not player:
+        raise ValueError(f"It is {current.name}'s turn, not {player.name}'s.")
     if player.is_eliminated:
         raise ValueError(f"{player.name} is eliminated and cannot make an accusation.")
+    if suspect not in SUSPECTS:
+        raise ValueError(
+            f"'{suspect}' is not a valid suspect. Valid suspects are: {SUSPECTS}"
+        )
+    if weapon not in WEAPONS:
+        raise ValueError(
+            f"'{weapon}' is not a valid weapon. Valid weapons are: {WEAPONS}"
+        )
+    if room not in ROOMS:
+        raise ValueError(
+            f"'{room}' is not a valid room. Valid rooms are: {ROOMS}"
+        )
 
     solution = state.solution
     correct: bool = (
@@ -199,8 +267,12 @@ def make_accusation(
         state.winner = player.name
     else:
         player.is_eliminated = True
+        active = [p for p in state.players if not p.is_eliminated]
+        if len(active) == 0:
+            state.game_over = True
+            # winner stays None — draw, no one solved it
 
-    return AccusationResult(
+    result = AccusationResult(
         correct=correct,
         player_name=player.name,
         suspect=suspect,
@@ -208,12 +280,23 @@ def make_accusation(
         room=room,
     )
 
+    state.turn_history.append({
+        "action": "accusation",
+        "player": player.name,
+        "details": {"suspect": suspect, "weapon": weapon, "room": room},
+        "result": {"correct": result.correct},
+    })
+
+    next_turn(state)
+    return result
+
 
 def check_for_winner(state: GameState) -> Optional[Player]:
     """Return the sole surviving player if all others are eliminated, else None.
 
     If exactly one non-eliminated player remains the game is set to over and
     that player is recorded as the winner on *state* before being returned.
+    If zero active players remain the game is set to over with no winner (draw).
 
     Args:
         state: The current game state. May be mutated (``game_over`` /
@@ -231,6 +314,10 @@ def check_for_winner(state: GameState) -> Optional[Player]:
         return None
 
     active = [p for p in state.players if not p.is_eliminated]
+    if len(active) == 0:
+        state.game_over = True
+        # winner stays None — draw
+        return None
     if len(active) == 1:
         state.game_over = True
         state.winner = active[0].name
@@ -261,3 +348,44 @@ def get_game_status(state: GameState) -> dict:
         "game_over": state.game_over,
         "winner": state.winner,
     }
+
+
+def get_turn_summary(state: GameState) -> dict:
+    """Return a dict describing the current player's position and available actions.
+
+    Args:
+        state: The current game state.
+
+    Returns:
+        A dict with the following keys:
+
+        * ``"player_name"`` — display name of the current player.
+        * ``"available_actions"`` — list of action strings the player can take.
+          Always includes ``"move"`` and ``"accuse"``; includes ``"suggest"``
+          only when the player is in a room.
+        * ``"room"`` — the player's current room name, or ``None``.
+        * ``"is_eliminated"`` — ``True`` if the player has been eliminated.
+        * ``"cards_in_hand"`` — number of cards held (not the cards themselves).
+    """
+    player = get_current_player(state)
+    actions: list[str] = ["move", "suggest", "accuse"] if player.current_room is not None else ["move", "accuse"]
+    return {
+        "player_name": player.name,
+        "available_actions": actions,
+        "room": player.current_room,
+        "is_eliminated": player.is_eliminated,
+        "cards_in_hand": len(player.hand),
+    }
+
+
+def reset_game(player_names: list[str]) -> GameState:
+    """Start a fresh game with the same player names.
+
+    Args:
+        player_names: Display names for each player, subject to the same
+                      constraints as :func:`new_game`.
+
+    Returns:
+        A brand-new :class:`GameState` as if :func:`new_game` had been called.
+    """
+    return new_game(player_names)

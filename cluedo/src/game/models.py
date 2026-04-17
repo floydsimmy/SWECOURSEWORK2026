@@ -58,6 +58,7 @@ class GameState:
     started: bool = False
     game_over: bool = False
     winner: Optional[str] = None
+    turn_history: list = field(default_factory=list)
 
 
 @dataclass

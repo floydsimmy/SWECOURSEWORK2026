@@ -10,11 +10,13 @@ from game.engine import (
     check_for_winner,
     get_current_player,
     get_game_status,
+    get_turn_summary,
     make_accusation,
     make_suggestion,
     move_to_room,
     new_game,
     next_turn,
+    reset_game,
 )
 from game.models import Card, GameState, Player
 
@@ -442,7 +444,8 @@ def test_eliminated_cards_still_refute() -> None:
     knife = Card(card_type="weapon", name="Knife")
     bob.hand = [knife]
 
-    # Eliminate Bob via a wrong accusation.
+    # Advance to Bob's turn, then eliminate Bob via a wrong accusation.
+    next_turn(state)  # Alice -> Bob
     sol = state.solution
     wrong_weapon = next(w for w in WEAPONS if w != sol["weapon"].name)
     make_accusation(
@@ -542,11 +545,14 @@ def test_last_player_standing_wins() -> None:
     sol = state.solution
     wrong_weapon = next(w for w in WEAPONS if w != sol["weapon"].name)
 
-    # Eliminate Bob and Carol with wrong accusations.
+    # Advance past Alice to Bob, then eliminate Bob and Carol in turn order.
+    next_turn(state)  # Alice -> Bob (index 1)
     make_accusation(state, state.players[1], suspect=sol["suspect"].name,
                     weapon=wrong_weapon, room=sol["room"].name)
+    # auto-advance: Bob eliminated -> Carol (index 2)
     make_accusation(state, state.players[2], suspect=sol["suspect"].name,
                     weapon=wrong_weapon, room=sol["room"].name)
+    # auto-advance: Carol eliminated -> Alice (index 0)
 
     winner = check_for_winner(state)
 
@@ -656,8 +662,7 @@ def test_full_game_simulation() -> None:
     assert result_bob.correct is False
     assert bob.is_eliminated is True
     assert state.game_over is False
-
-    next_turn(state)  # Bob is eliminated — advances to Carol
+    # make_accusation auto-advances the turn to Carol
 
     # --- Turn 3: Carol makes a correct accusation ---
     carol = get_current_player(state)
@@ -677,3 +682,289 @@ def test_full_game_simulation() -> None:
     assert status["game_over"] is True
     assert status["winner"] == "Carol"
     assert status["players_remaining"] == 2  # Alice and Carol still active
+
+
+# ---------------------------------------------------------------------------
+# Sprint 3 — input validation: suspects, weapons, rooms
+# ---------------------------------------------------------------------------
+
+
+def test_invalid_suspect_in_suggestion() -> None:
+    """make_suggestion raises ValueError for an unrecognised suspect name."""
+    state = _make_state()
+    player = state.players[0]
+    player.current_room = "Kitchen"
+    with pytest.raises(ValueError, match="suspect"):
+        make_suggestion(state, player, suspect="Not A Suspect", weapon="Knife")
+
+
+def test_invalid_weapon_in_suggestion() -> None:
+    """make_suggestion raises ValueError for an unrecognised weapon name."""
+    state = _make_state()
+    player = state.players[0]
+    player.current_room = "Kitchen"
+    with pytest.raises(ValueError, match="weapon"):
+        make_suggestion(state, player, suspect="Miss Scarlet", weapon="Bazooka")
+
+
+def test_invalid_suspect_in_accusation() -> None:
+    """make_accusation raises ValueError for an unrecognised suspect name."""
+    state = _make_state()
+    player = state.players[0]
+    with pytest.raises(ValueError, match="suspect"):
+        make_accusation(state, player, suspect="Nobody", weapon="Knife", room="Kitchen")
+
+
+def test_invalid_weapon_in_accusation() -> None:
+    """make_accusation raises ValueError for an unrecognised weapon name."""
+    state = _make_state()
+    player = state.players[0]
+    with pytest.raises(ValueError, match="weapon"):
+        make_accusation(state, player, suspect="Miss Scarlet", weapon="Tank", room="Kitchen")
+
+
+def test_invalid_room_in_accusation() -> None:
+    """make_accusation raises ValueError for an unrecognised room name."""
+    state = _make_state()
+    player = state.players[0]
+    with pytest.raises(ValueError, match="room"):
+        make_accusation(state, player, suspect="Miss Scarlet", weapon="Knife", room="Narnia")
+
+
+# ---------------------------------------------------------------------------
+# Sprint 3 — new_game() name validation
+# ---------------------------------------------------------------------------
+
+
+def test_duplicate_player_names() -> None:
+    """new_game raises ValueError when duplicate player names are supplied."""
+    with pytest.raises(ValueError):
+        new_game(["Alice", "Alice", "Carol"])
+
+
+def test_empty_player_name() -> None:
+    """new_game raises ValueError when any player name is an empty string."""
+    with pytest.raises(ValueError):
+        new_game(["Alice", "", "Carol"])
+
+
+# ---------------------------------------------------------------------------
+# Sprint 3 — turn-order enforcement
+# ---------------------------------------------------------------------------
+
+
+def test_wrong_turn_suggestion() -> None:
+    """make_suggestion raises ValueError when called by a player who is not current."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    bob = state.players[1]
+    bob.current_room = "Kitchen"
+    # Turn is Alice's (index 0); Bob acts out of turn.
+    with pytest.raises(ValueError):
+        make_suggestion(state, bob, suspect="Miss Scarlet", weapon="Knife")
+
+
+def test_wrong_turn_accusation() -> None:
+    """make_accusation raises ValueError when called by a player who is not current."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    bob = state.players[1]
+    sol = state.solution
+    # Turn is Alice's (index 0); Bob acts out of turn.
+    with pytest.raises(ValueError):
+        make_accusation(state, bob, suspect=sol["suspect"].name,
+                        weapon=sol["weapon"].name, room=sol["room"].name)
+
+
+def test_wrong_turn_move() -> None:
+    """move_to_room raises ValueError when called by a player who is not current."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    bob = state.players[1]
+    # Turn is Alice's (index 0); Bob acts out of turn.
+    with pytest.raises(ValueError):
+        move_to_room(state, bob, "Kitchen")
+
+
+# ---------------------------------------------------------------------------
+# Sprint 3 — action after game over
+# ---------------------------------------------------------------------------
+
+
+def test_action_after_game_over() -> None:
+    """Any action after game_over=True raises ValueError('Game is already over')."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    alice = state.players[0]
+    sol = state.solution
+
+    make_accusation(state, alice,
+                    suspect=sol["suspect"].name,
+                    weapon=sol["weapon"].name,
+                    room=sol["room"].name)
+    assert state.game_over is True
+
+    # After auto-advance it is now Bob's turn; all actions should be blocked.
+    bob = state.players[1]
+    with pytest.raises(ValueError, match="already over"):
+        make_accusation(state, bob,
+                        suspect=sol["suspect"].name,
+                        weapon=sol["weapon"].name,
+                        room=sol["room"].name)
+
+
+# ---------------------------------------------------------------------------
+# Sprint 3 — draw: all players eliminated
+# ---------------------------------------------------------------------------
+
+
+def test_all_players_eliminated_draw() -> None:
+    """game_over=True and winner=None when every player makes a wrong accusation."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    sol = state.solution
+    wrong_weapon = next(w for w in WEAPONS if w != sol["weapon"].name)
+
+    # Accusations in strict turn order; auto-advance moves to next player each time.
+    make_accusation(state, state.players[0], suspect=sol["suspect"].name,
+                    weapon=wrong_weapon, room=sol["room"].name)
+    make_accusation(state, state.players[1], suspect=sol["suspect"].name,
+                    weapon=wrong_weapon, room=sol["room"].name)
+    make_accusation(state, state.players[2], suspect=sol["suspect"].name,
+                    weapon=wrong_weapon, room=sol["room"].name)
+
+    assert state.game_over is True
+    assert state.winner is None
+
+
+# ---------------------------------------------------------------------------
+# Sprint 3 — turn-advance behaviour
+# ---------------------------------------------------------------------------
+
+
+def test_auto_advance_after_accusation() -> None:
+    """Turn automatically advances to the next player after any accusation."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    alice = state.players[0]
+    sol = state.solution
+    wrong_weapon = next(w for w in WEAPONS if w != sol["weapon"].name)
+
+    assert state.current_turn_index == 0
+    make_accusation(state, alice,
+                    suspect=sol["suspect"].name,
+                    weapon=wrong_weapon,
+                    room=sol["room"].name)
+    assert state.current_turn_index == 1
+    assert get_current_player(state).name == "Bob"
+
+
+def test_no_advance_after_suggestion() -> None:
+    """Turn does NOT advance after a suggestion — the player may still accuse."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    alice = state.players[0]
+    alice.current_room = "Kitchen"
+
+    assert state.current_turn_index == 0
+    make_suggestion(state, alice, suspect="Miss Scarlet", weapon="Knife")
+    assert state.current_turn_index == 0
+
+
+# ---------------------------------------------------------------------------
+# Sprint 3 — player-count edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_three_player_game() -> None:
+    """Full game flow works correctly with the minimum of 3 players."""
+    state = new_game(["Alice", "Bob", "Carol"])
+    assert len(state.players) == 3
+    assert state.started is True
+
+    alice = get_current_player(state)
+    sol = state.solution
+    move_to_room(state, alice, sol["room"].name)
+    result = make_suggestion(state, alice, suspect=sol["suspect"].name, weapon=sol["weapon"].name)
+    assert isinstance(result.refuted, bool)
+
+
+def test_six_player_game() -> None:
+    """Game setup works correctly with the maximum of 6 players."""
+    names = ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"]
+    state = new_game(names)
+    assert len(state.players) == 6
+    assert state.started is True
+    sizes = [len(p.hand) for p in state.players]
+    assert max(sizes) - min(sizes) <= 1
+
+
+# ---------------------------------------------------------------------------
+# Sprint 3 — get_turn_summary
+# ---------------------------------------------------------------------------
+
+
+def test_get_turn_summary_in_room() -> None:
+    """get_turn_summary includes 'suggest' in available_actions when player is in a room."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    alice = state.players[0]
+    alice.current_room = "Kitchen"
+
+    summary = get_turn_summary(state)
+
+    assert summary["player_name"] == "Alice"
+    assert "suggest" in summary["available_actions"]
+    assert "move" in summary["available_actions"]
+    assert "accuse" in summary["available_actions"]
+    assert summary["room"] == "Kitchen"
+    assert summary["is_eliminated"] is False
+    assert isinstance(summary["cards_in_hand"], int)
+
+
+def test_get_turn_summary_not_in_room() -> None:
+    """get_turn_summary omits 'suggest' when the current player has no room."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    # Alice starts with no room.
+
+    summary = get_turn_summary(state)
+
+    assert summary["player_name"] == "Alice"
+    assert "suggest" not in summary["available_actions"]
+    assert summary["room"] is None
+
+
+# ---------------------------------------------------------------------------
+# Sprint 3 — turn history logging
+# ---------------------------------------------------------------------------
+
+
+def test_turn_history_records_actions() -> None:
+    """turn_history accumulates an entry for each move and suggestion."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    alice = state.players[0]
+
+    assert len(state.turn_history) == 0
+
+    move_to_room(state, alice, "Kitchen")
+    assert len(state.turn_history) == 1
+    assert state.turn_history[0]["action"] == "move"
+    assert state.turn_history[0]["player"] == "Alice"
+
+    make_suggestion(state, alice, suspect="Miss Scarlet", weapon="Knife")
+    assert len(state.turn_history) == 2
+    assert state.turn_history[1]["action"] == "suggestion"
+
+
+# ---------------------------------------------------------------------------
+# Sprint 3 — reset_game
+# ---------------------------------------------------------------------------
+
+
+def test_reset_game() -> None:
+    """reset_game returns a fresh GameState with the same player names."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    alice = state.players[0]
+    move_to_room(state, alice, "Kitchen")
+
+    fresh = reset_game(["Alice", "Bob", "Carol"])
+
+    assert fresh.started is True
+    assert len(fresh.players) == 3
+    assert fresh.game_over is False
+    assert fresh.winner is None
+    assert len(fresh.turn_history) == 0
+    assert fresh.players[0].current_room is None
+    assert fresh.players[0].name == "Alice"
