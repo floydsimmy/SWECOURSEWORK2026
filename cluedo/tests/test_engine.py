@@ -7,7 +7,9 @@ import pytest
 
 from game.deck import ROOMS, SUSPECTS, WEAPONS
 from game.engine import (
+    check_for_winner,
     get_current_player,
+    get_game_status,
     make_accusation,
     make_suggestion,
     move_to_room,
@@ -351,3 +353,327 @@ def test_make_accusation_result_records_player_name_and_guess() -> None:
     assert result.suspect == "Miss Scarlet"
     assert result.weapon == "Candlestick"
     assert result.room == "Kitchen"
+
+
+# ---------------------------------------------------------------------------
+# Sprint 2 — suggestion guards
+# ---------------------------------------------------------------------------
+
+
+def test_suggestion_requires_room() -> None:
+    """make_suggestion raises ValueError when player.current_room is None."""
+    state = _make_state()
+    player = state.players[0]
+    player.current_room = None
+    with pytest.raises(ValueError):
+        make_suggestion(state, player, suspect="Miss Scarlet", weapon="Knife")
+
+
+def test_suggestion_uses_current_room() -> None:
+    """make_suggestion uses the player's current_room, not a passed-in room."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    alice = state.players[0]
+    bob = state.players[1]
+
+    alice.current_room = "Kitchen"
+    # Bob holds the Kitchen room card — it should be matched via alice.current_room.
+    bob.hand = [Card(card_type="room", name="Kitchen")]
+
+    result = make_suggestion(state, alice, suspect="Professor Plum", weapon="Wrench")
+
+    assert result.refuted is True
+    assert result.card_shown is not None
+    assert result.card_shown.name == "Kitchen"
+
+
+# ---------------------------------------------------------------------------
+# Sprint 2 — refutation order and elimination interaction
+# ---------------------------------------------------------------------------
+
+
+def test_refutation_turn_order() -> None:
+    """Refutation checks players in turn order starting immediately after the suggester."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    alice = state.players[0]
+    bob = state.players[1]
+    carol = state.players[2]
+
+    alice.current_room = "Ballroom"
+    # Both Bob and Carol hold a matching card; Bob comes first — he should refute.
+    bob.hand = [Card(card_type="weapon", name="Rope")]
+    carol.hand = [Card(card_type="weapon", name="Rope")]
+
+    result = make_suggestion(state, alice, suspect="Miss Scarlet", weapon="Rope")
+
+    assert result.refuted is True
+    assert result.refuting_player == "Bob"
+
+
+def test_refutation_skips_eliminated() -> None:
+    """Eliminated players are bypassed; the next active player is the refuter."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    alice = state.players[0]
+    bob = state.players[1]
+    carol = state.players[2]
+
+    alice.current_room = "Library"
+    # Bob is eliminated and holds a match; Carol (active) also holds a match.
+    bob.hand = [Card(card_type="weapon", name="Knife")]
+    bob.is_eliminated = True
+    carol.hand = [Card(card_type="weapon", name="Knife")]
+
+    result = make_suggestion(state, alice, suspect="Colonel Mustard", weapon="Knife")
+
+    # Bob is skipped; Carol refutes.
+    assert result.refuted is True
+    assert result.refuting_player == "Carol"
+
+
+def test_eliminated_cards_still_refute() -> None:
+    """An eliminated player's hand is preserved (cards not cleared on elimination).
+
+    Even though eliminated players are skipped during active refutation, the
+    engine must not erase their cards — the hand remains intact in the game
+    state for inspection.
+    """
+    state = _make_state(["Alice", "Bob", "Carol"])
+    bob = state.players[1]
+
+    knife = Card(card_type="weapon", name="Knife")
+    bob.hand = [knife]
+
+    # Eliminate Bob via a wrong accusation.
+    sol = state.solution
+    wrong_weapon = next(w for w in WEAPONS if w != sol["weapon"].name)
+    make_accusation(
+        state, bob,
+        suspect=sol["suspect"].name,
+        weapon=wrong_weapon,
+        room=sol["room"].name,
+    )
+
+    assert bob.is_eliminated is True
+    # Card must still be present in the hand after elimination.
+    assert knife in bob.hand
+
+
+# ---------------------------------------------------------------------------
+# Sprint 2 — eliminated-player action guards
+# ---------------------------------------------------------------------------
+
+
+def test_eliminated_cannot_suggest() -> None:
+    """An eliminated player raises ValueError when attempting to make a suggestion."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    alice = state.players[0]
+    alice.current_room = "Kitchen"
+    alice.is_eliminated = True
+
+    with pytest.raises(ValueError):
+        make_suggestion(state, alice, suspect="Miss Scarlet", weapon="Knife")
+
+
+def test_eliminated_cannot_accuse() -> None:
+    """An eliminated player raises ValueError when attempting to make an accusation."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    alice = state.players[0]
+    alice.is_eliminated = True
+
+    with pytest.raises(ValueError):
+        make_accusation(
+            state, alice,
+            suspect="Miss Scarlet",
+            weapon="Knife",
+            room="Kitchen",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Sprint 2 — accusation outcomes (game_over / winner)
+# ---------------------------------------------------------------------------
+
+
+def test_correct_accusation_ends_game() -> None:
+    """A correct accusation sets game_over=True and records the winner."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    alice = state.players[0]
+    sol = state.solution
+
+    result = make_accusation(
+        state, alice,
+        suspect=sol["suspect"].name,
+        weapon=sol["weapon"].name,
+        room=sol["room"].name,
+    )
+
+    assert result.correct is True
+    assert state.game_over is True
+    assert state.winner == "Alice"
+
+
+def test_wrong_accusation_eliminates() -> None:
+    """A wrong accusation sets player.is_eliminated without ending the game."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    alice = state.players[0]
+    sol = state.solution
+
+    wrong_suspect = next(s for s in SUSPECTS if s != sol["suspect"].name)
+    result = make_accusation(
+        state, alice,
+        suspect=wrong_suspect,
+        weapon=sol["weapon"].name,
+        room=sol["room"].name,
+    )
+
+    assert result.correct is False
+    assert alice.is_eliminated is True
+    assert state.game_over is False
+    assert state.winner is None
+
+
+# ---------------------------------------------------------------------------
+# Sprint 2 — last player standing
+# ---------------------------------------------------------------------------
+
+
+def test_last_player_standing_wins() -> None:
+    """check_for_winner returns the sole active player and sets game_over."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    sol = state.solution
+    wrong_weapon = next(w for w in WEAPONS if w != sol["weapon"].name)
+
+    # Eliminate Bob and Carol with wrong accusations.
+    make_accusation(state, state.players[1], suspect=sol["suspect"].name,
+                    weapon=wrong_weapon, room=sol["room"].name)
+    make_accusation(state, state.players[2], suspect=sol["suspect"].name,
+                    weapon=wrong_weapon, room=sol["room"].name)
+
+    winner = check_for_winner(state)
+
+    assert winner is not None
+    assert winner.name == "Alice"
+    assert state.game_over is True
+    assert state.winner == "Alice"
+
+
+# ---------------------------------------------------------------------------
+# Sprint 2 — get_game_status
+# ---------------------------------------------------------------------------
+
+
+def test_get_game_status_during_play() -> None:
+    """get_game_status returns correct dict while the game is in progress."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+
+    status = get_game_status(state)
+
+    assert status["current_player"] == "Alice"
+    assert status["players_remaining"] == 3
+    assert status["game_over"] is False
+    assert status["winner"] is None
+
+
+def test_get_game_status_after_win() -> None:
+    """get_game_status reflects the ended state after a correct accusation."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    alice = state.players[0]
+    sol = state.solution
+
+    make_accusation(
+        state, alice,
+        suspect=sol["suspect"].name,
+        weapon=sol["weapon"].name,
+        room=sol["room"].name,
+    )
+
+    status = get_game_status(state)
+
+    assert status["game_over"] is True
+    assert status["winner"] == "Alice"
+
+
+# ---------------------------------------------------------------------------
+# Sprint 2 — multi-elimination and full simulation
+# ---------------------------------------------------------------------------
+
+
+def test_multiple_wrong_accusations() -> None:
+    """Multiple players can be eliminated sequentially; game_over stays False until a win."""
+    state = _make_state(["Alice", "Bob", "Carol", "Dave"])
+    sol = state.solution
+    wrong_weapon = next(w for w in WEAPONS if w != sol["weapon"].name)
+
+    make_accusation(state, state.players[0], suspect=sol["suspect"].name,
+                    weapon=wrong_weapon, room=sol["room"].name)
+    make_accusation(state, state.players[1], suspect=sol["suspect"].name,
+                    weapon=wrong_weapon, room=sol["room"].name)
+    make_accusation(state, state.players[2], suspect=sol["suspect"].name,
+                    weapon=wrong_weapon, room=sol["room"].name)
+
+    assert state.players[0].is_eliminated is True
+    assert state.players[1].is_eliminated is True
+    assert state.players[2].is_eliminated is True
+    assert state.players[3].is_eliminated is False
+    assert state.game_over is False  # Dave hasn't won yet — no correct accusation
+
+
+def test_full_game_simulation() -> None:
+    """Simulate a complete game: setup → moves → suggestions → correct accusation."""
+    state = new_game(["Alice", "Bob", "Carol"])
+    sol = state.solution
+
+    assert state.started is True
+    assert state.game_over is False
+    assert len(state.players) == 3
+
+    # --- Turn 1: Alice moves and makes a suggestion ---
+    alice = get_current_player(state)
+    assert alice.name == "Alice"
+
+    move_to_room(state, alice, sol["room"].name)
+    assert alice.current_room == sol["room"].name
+
+    suggestion = make_suggestion(
+        state, alice,
+        suspect=sol["suspect"].name,
+        weapon=sol["weapon"].name,
+    )
+    assert isinstance(suggestion.refuted, bool)
+
+    next_turn(state)
+
+    # --- Turn 2: Bob moves and makes a wrong accusation ---
+    bob = get_current_player(state)
+    assert bob.name == "Bob"
+
+    wrong_weapon = next(w for w in WEAPONS if w != sol["weapon"].name)
+    result_bob = make_accusation(
+        state, bob,
+        suspect=sol["suspect"].name,
+        weapon=wrong_weapon,
+        room=sol["room"].name,
+    )
+    assert result_bob.correct is False
+    assert bob.is_eliminated is True
+    assert state.game_over is False
+
+    next_turn(state)  # Bob is eliminated — advances to Carol
+
+    # --- Turn 3: Carol makes a correct accusation ---
+    carol = get_current_player(state)
+    assert carol.name == "Carol"
+
+    result_carol = make_accusation(
+        state, carol,
+        suspect=sol["suspect"].name,
+        weapon=sol["weapon"].name,
+        room=sol["room"].name,
+    )
+    assert result_carol.correct is True
+    assert state.game_over is True
+    assert state.winner == "Carol"
+
+    status = get_game_status(state)
+    assert status["game_over"] is True
+    assert status["winner"] == "Carol"
+    assert status["players_remaining"] == 2  # Alice and Carol still active

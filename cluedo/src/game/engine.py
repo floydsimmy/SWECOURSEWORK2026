@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from game.deck import ROOMS, create_deck, deal_cards, select_solution
 from game.models import AccusationResult, Card, GameState, Player, RefuteResult
 
@@ -125,6 +127,8 @@ def make_suggestion(
     Raises:
         ValueError: If ``player`` is not currently in any room.
     """
+    if player.is_eliminated:
+        raise ValueError(f"{player.name} is eliminated and cannot make a suggestion.")
     if player.current_room is None:
         raise ValueError("Player must be in a room to make a suggestion.")
 
@@ -180,6 +184,9 @@ def make_accusation(
         An :class:`AccusationResult` with ``correct=True`` for a winning
         accusation, or ``correct=False`` (and the player eliminated) otherwise.
     """
+    if player.is_eliminated:
+        raise ValueError(f"{player.name} is eliminated and cannot make an accusation.")
+
     solution = state.solution
     correct: bool = (
         solution["suspect"].name == suspect
@@ -187,7 +194,10 @@ def make_accusation(
         and solution["room"].name == room
     )
 
-    if not correct:
+    if correct:
+        state.game_over = True
+        state.winner = player.name
+    else:
         player.is_eliminated = True
 
     return AccusationResult(
@@ -197,3 +207,57 @@ def make_accusation(
         weapon=weapon,
         room=room,
     )
+
+
+def check_for_winner(state: GameState) -> Optional[Player]:
+    """Return the sole surviving player if all others are eliminated, else None.
+
+    If exactly one non-eliminated player remains the game is set to over and
+    that player is recorded as the winner on *state* before being returned.
+
+    Args:
+        state: The current game state. May be mutated (``game_over`` /
+               ``winner``) if a last-player-standing condition is detected.
+
+    Returns:
+        The winning :class:`Player`, or ``None`` if the game is already over
+        through a correct accusation or if more than one player is still active.
+    """
+    if state.game_over:
+        # Already won via a correct accusation — look up and return that player.
+        for p in state.players:
+            if p.name == state.winner:
+                return p
+        return None
+
+    active = [p for p in state.players if not p.is_eliminated]
+    if len(active) == 1:
+        state.game_over = True
+        state.winner = active[0].name
+        return active[0]
+
+    return None
+
+
+def get_game_status(state: GameState) -> dict:
+    """Return a summary dictionary describing the current game state.
+
+    Args:
+        state: The current game state.
+
+    Returns:
+        A dict with the following keys:
+
+        * ``"current_player"`` — display name of the player whose turn it is.
+        * ``"players_remaining"`` — count of non-eliminated players.
+        * ``"game_over"`` — ``True`` once the game has ended.
+        * ``"winner"`` — display name of the winner, or ``None`` if the game
+          is still in progress.
+    """
+    active = [p for p in state.players if not p.is_eliminated]
+    return {
+        "current_player": get_current_player(state).name,
+        "players_remaining": len(active),
+        "game_over": state.game_over,
+        "winner": state.winner,
+    }

@@ -56,6 +56,8 @@ class GameState:
     solution: dict[str, Card]
     current_turn_index: int
     started: bool = False
+    game_over: bool = False
+    winner: Optional[str] = None
 
 
 @dataclass
