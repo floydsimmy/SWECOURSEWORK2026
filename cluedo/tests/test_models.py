@@ -157,3 +157,36 @@ def test_accusation_result_incorrect() -> None:
         room="Ballroom",
     )
     assert result.correct is False
+
+
+# ---------------------------------------------------------------------------
+# Sprint 4 — __str__ representations
+# ---------------------------------------------------------------------------
+
+
+def test_card_str_representation() -> None:
+    """Card __str__ includes both the card type and name."""
+    card = Card(card_type="suspect", name="Miss Scarlet")
+    s = str(card)
+    assert "Miss Scarlet" in s
+    assert "suspect" in s
+
+
+def test_player_str_representation() -> None:
+    """Player __str__ includes name and current room."""
+    player = Player(
+        name="Alice",
+        hand=[Card("weapon", "Knife")],
+        current_room="Kitchen",
+    )
+    s = str(player)
+    assert "Alice" in s
+    assert "Kitchen" in s
+
+
+def test_player_str_no_room() -> None:
+    """Player __str__ is readable when the player has no current room."""
+    player = Player(name="Bob")
+    s = str(player)
+    assert "Bob" in s
+    assert "no room" in s or "None" in s or "room" in s.lower()

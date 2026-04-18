@@ -104,6 +104,40 @@ def select_solution(deck: list[Card]) -> tuple[dict[str, Card], list[Card]]:
     return solution, remaining
 
 
+def verify_deck(deck: list[Card]) -> bool:
+    """Verify that a deck has the correct Cluedo composition.
+
+    A valid Cluedo deck contains exactly 6 suspects, 6 weapons, and 9 rooms
+    (21 cards total).
+
+    Args:
+        deck: The list of :class:`~game.models.Card` objects to verify.
+
+    Returns:
+        True if the deck is valid.
+
+    Raises:
+        ValueError: With a descriptive message if the deck has the wrong
+                    number of suspects, weapons, or rooms.
+    """
+    suspects = [c for c in deck if c.card_type == "suspect"]
+    weapons = [c for c in deck if c.card_type == "weapon"]
+    rooms = [c for c in deck if c.card_type == "room"]
+
+    errors: list[str] = []
+    if len(suspects) != 6:
+        errors.append(f"expected 6 suspects, found {len(suspects)}")
+    if len(weapons) != 6:
+        errors.append(f"expected 6 weapons, found {len(weapons)}")
+    if len(rooms) != 9:
+        errors.append(f"expected 9 rooms, found {len(rooms)}")
+
+    if errors:
+        raise ValueError(f"Deck verification failed: {'; '.join(errors)}.")
+
+    return True
+
+
 def deal_cards(cards: list[Card], num_players: int) -> list[list[Card]]:
     """Shuffle and deal cards as evenly as possible across all players.
 

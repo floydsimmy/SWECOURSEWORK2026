@@ -22,6 +22,9 @@ class Card:
     card_type: str  # "suspect" | "weapon" | "room"
     name: str
 
+    def __str__(self) -> str:
+        return f"Card({self.card_type}: {self.name})"
+
 
 @dataclass
 class Player:
@@ -38,6 +41,10 @@ class Player:
     hand: list[Card] = field(default_factory=list)
     current_room: Optional[str] = None
     is_eliminated: bool = False
+
+    def __str__(self) -> str:
+        room_part = f"in {self.current_room}" if self.current_room is not None else "no room"
+        return f"Player({self.name}, {len(self.hand)} cards, {room_part})"
 
 
 @dataclass

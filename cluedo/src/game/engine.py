@@ -107,7 +107,7 @@ def move_to_room(state: GameState, player: Player, room: str) -> None:
         raise ValueError(f"It is {current.name}'s turn, not {player.name}'s.")
     if room not in ROOMS:
         raise ValueError(
-            f"'{room}' is not a valid room. Valid rooms are: {ROOMS}"
+            f"Invalid room '{room}'. Must be one of: {', '.join(ROOMS)}."
         )
     player.current_room = room
     state.turn_history.append({
@@ -157,11 +157,11 @@ def make_suggestion(
         raise ValueError(f"{player.name} is eliminated and cannot make a suggestion.")
     if suspect not in SUSPECTS:
         raise ValueError(
-            f"'{suspect}' is not a valid suspect. Valid suspects are: {SUSPECTS}"
+            f"Invalid suspect '{suspect}'. Must be one of: {', '.join(SUSPECTS)}."
         )
     if weapon not in WEAPONS:
         raise ValueError(
-            f"'{weapon}' is not a valid weapon. Valid weapons are: {WEAPONS}"
+            f"Invalid weapon '{weapon}'. Must be one of: {', '.join(WEAPONS)}."
         )
     if player.current_room is None:
         raise ValueError("Player must be in a room to make a suggestion.")
@@ -244,15 +244,15 @@ def make_accusation(
         raise ValueError(f"{player.name} is eliminated and cannot make an accusation.")
     if suspect not in SUSPECTS:
         raise ValueError(
-            f"'{suspect}' is not a valid suspect. Valid suspects are: {SUSPECTS}"
+            f"Invalid suspect '{suspect}'. Must be one of: {', '.join(SUSPECTS)}."
         )
     if weapon not in WEAPONS:
         raise ValueError(
-            f"'{weapon}' is not a valid weapon. Valid weapons are: {WEAPONS}"
+            f"Invalid weapon '{weapon}'. Must be one of: {', '.join(WEAPONS)}."
         )
     if room not in ROOMS:
         raise ValueError(
-            f"'{room}' is not a valid room. Valid rooms are: {ROOMS}"
+            f"Invalid room '{room}'. Must be one of: {', '.join(ROOMS)}."
         )
 
     solution = state.solution
@@ -389,3 +389,69 @@ def reset_game(player_names: list[str]) -> GameState:
         A brand-new :class:`GameState` as if :func:`new_game` had been called.
     """
     return new_game(player_names)
+
+
+def validate_game_state(state: GameState) -> bool:
+    """Assert that a GameState is internally consistent.
+
+    Performs four checks:
+
+    1. The solution contains exactly the keys ``"suspect"``, ``"weapon"``,
+       and ``"room"``, each mapping to a card of the matching type.
+    2. ``current_turn_index`` is within the bounds of ``state.players``.
+    3. The combined card count (solution cards + all player hands) equals 21.
+    4. No card (identified by ``card_type`` + ``name``) appears more than once
+       across the solution and all player hands.
+
+    Args:
+        state: The :class:`GameState` to validate.
+
+    Returns:
+        ``True`` if every check passes.
+
+    Raises:
+        ValueError: With a descriptive message identifying the first failed
+                    check.
+    """
+    expected_keys = {"suspect", "weapon", "room"}
+    if set(state.solution.keys()) != expected_keys:
+        raise ValueError(
+            f"Solution must have exactly the keys {expected_keys}; "
+            f"got: {set(state.solution.keys())}."
+        )
+    for key in ("suspect", "weapon", "room"):
+        card = state.solution[key]
+        if card.card_type != key:
+            raise ValueError(
+                f"Solution card for '{key}' has wrong card_type '{card.card_type}'."
+            )
+
+    num_players = len(state.players)
+    if not (0 <= state.current_turn_index < num_players):
+        raise ValueError(
+            f"current_turn_index {state.current_turn_index} is out of bounds "
+            f"for {num_players} player(s)."
+        )
+
+    solution_cards = list(state.solution.values())
+    hand_cards = [card for player in state.players for card in player.hand]
+    all_cards = solution_cards + hand_cards
+
+    if len(all_cards) != 21:
+        raise ValueError(
+            f"Expected 21 total cards (solution + all hands), found {len(all_cards)}."
+        )
+
+    card_ids = [(c.card_type, c.name) for c in all_cards]
+    if len(card_ids) != len(set(card_ids)):
+        seen: set[tuple[str, str]] = set()
+        duplicates: list[tuple[str, str]] = []
+        for cid in card_ids:
+            if cid in seen:
+                duplicates.append(cid)
+            seen.add(cid)
+        raise ValueError(
+            f"Duplicate cards found: {duplicates}."
+        )
+
+    return True

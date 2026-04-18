@@ -6,6 +6,7 @@
 import pytest
 
 from game.deck import ROOMS, SUSPECTS, WEAPONS
+from game.deck import create_deck, verify_deck
 from game.engine import (
     check_for_winner,
     get_current_player,
@@ -17,6 +18,7 @@ from game.engine import (
     new_game,
     next_turn,
     reset_game,
+    validate_game_state,
 )
 from game.models import Card, GameState, Player
 
@@ -968,3 +970,221 @@ def test_reset_game() -> None:
     assert len(fresh.turn_history) == 0
     assert fresh.players[0].current_room is None
     assert fresh.players[0].name == "Alice"
+
+
+# ---------------------------------------------------------------------------
+# Sprint 4 — verify_deck
+# ---------------------------------------------------------------------------
+
+
+def test_verify_deck() -> None:
+    """verify_deck returns True for a freshly created deck."""
+    deck = create_deck()
+    assert verify_deck(deck) is True
+
+
+def test_verify_deck_wrong_count() -> None:
+    """verify_deck raises ValueError when a card is missing from the deck."""
+    deck = create_deck()
+    deck.pop()
+    with pytest.raises(ValueError):
+        verify_deck(deck)
+
+
+# ---------------------------------------------------------------------------
+# Sprint 4 — validate_game_state
+# ---------------------------------------------------------------------------
+
+
+def test_validate_game_state_valid() -> None:
+    """validate_game_state returns True for a freshly created game."""
+    state = _make_state()
+    assert validate_game_state(state) is True
+
+
+def test_validate_game_state_missing_cards() -> None:
+    """validate_game_state raises ValueError when total card count is not 21."""
+    state = _make_state()
+    state.players[0].hand.pop()
+    with pytest.raises(ValueError, match="21"):
+        validate_game_state(state)
+
+
+def test_validate_game_state_duplicate_cards() -> None:
+    """validate_game_state raises ValueError when a card appears more than once."""
+    state = _make_state()
+    # Replace a card in player[1]'s hand with an identical copy of player[0]'s first card,
+    # keeping the total at 21 so only the duplicate check triggers.
+    original = state.players[0].hand[0]
+    state.players[1].hand[0] = Card(card_type=original.card_type, name=original.name)
+    with pytest.raises(ValueError, match="[Dd]uplicate"):
+        validate_game_state(state)
+
+
+def test_validate_game_state_bad_solution() -> None:
+    """validate_game_state raises ValueError when the solution is missing a key."""
+    state = _make_state()
+    del state.solution["room"]
+    with pytest.raises(ValueError):
+        validate_game_state(state)
+
+
+def test_validate_game_state_bad_turn_index() -> None:
+    """validate_game_state raises ValueError when current_turn_index is out of bounds."""
+    state = _make_state()
+    state.current_turn_index = 99
+    with pytest.raises(ValueError, match="out of bounds"):
+        validate_game_state(state)
+
+
+# ---------------------------------------------------------------------------
+# Sprint 4 — accusation on first turn
+# ---------------------------------------------------------------------------
+
+
+def test_accusation_on_first_turn() -> None:
+    """A correct accusation on the very first turn wins immediately."""
+    state = _make_state()
+    player = state.players[0]
+    sol = state.solution
+
+    result = make_accusation(
+        state, player,
+        suspect=sol["suspect"].name,
+        weapon=sol["weapon"].name,
+        room=sol["room"].name,
+    )
+
+    assert result.correct is True
+    assert state.game_over is True
+    assert state.winner == player.name
+
+
+# ---------------------------------------------------------------------------
+# Sprint 4 — suggestion edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_suggestion_no_refutation() -> None:
+    """make_suggestion returns refuted=False when no active player holds a matching card."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    alice = state.players[0]
+    for p in state.players[1:]:
+        p.hand = []
+    alice.current_room = "Dining Room"
+
+    result = make_suggestion(state, alice, suspect="Professor Plum", weapon="Wrench")
+
+    assert result.refuted is False
+    assert result.refuting_player is None
+    assert result.card_shown is None
+
+
+def test_suggestion_last_player_refutes() -> None:
+    """Refutation succeeds when only the last player checked (in turn order) holds a match."""
+    state = _make_state(["Alice", "Bob", "Carol"])
+    alice = state.players[0]
+    bob = state.players[1]
+    carol = state.players[2]
+
+    bob.hand = []
+    carol.hand = [Card(card_type="weapon", name="Rope")]
+    alice.current_room = "Lounge"
+
+    result = make_suggestion(state, alice, suspect="Miss Scarlet", weapon="Rope")
+
+    assert result.refuted is True
+    assert result.refuting_player == "Carol"
+
+
+# ---------------------------------------------------------------------------
+# Sprint 4 — all player counts work
+# ---------------------------------------------------------------------------
+
+
+def test_all_player_counts_work() -> None:
+    """new_game initialises correctly for every valid player count (3–6)."""
+    for count in [3, 4, 5, 6]:
+        names = [chr(65 + i) for i in range(count)]
+        state = new_game(names)
+        assert len(state.players) == count
+        assert state.started is True
+        total_cards = sum(len(p.hand) for p in state.players)
+        assert total_cards == 18  # 21 total − 3 solution cards
+
+
+# ---------------------------------------------------------------------------
+# Sprint 4 — full game regression
+# ---------------------------------------------------------------------------
+
+
+def test_full_game_regression() -> None:
+    """End-to-end regression: 4-player game from setup through to a decisive win."""
+    names = ["Alice", "Bob", "Carol", "Dave"]
+    state = new_game(names)
+    sol = state.solution
+
+    assert state.started is True
+    assert state.game_over is False
+    assert state.winner is None
+    assert len(state.players) == 4
+    assert sum(len(p.hand) for p in state.players) == 18
+
+    wrong_weapon = next(w for w in WEAPONS if w != sol["weapon"].name)
+
+    # Turn 1: Alice moves to the solution room and makes a suggestion.
+    alice = get_current_player(state)
+    assert alice.name == "Alice"
+    move_to_room(state, alice, sol["room"].name)
+    suggestion = make_suggestion(
+        state, alice,
+        suspect=sol["suspect"].name,
+        weapon=sol["weapon"].name,
+    )
+    assert isinstance(suggestion.refuted, bool)
+    assert len(state.turn_history) == 2  # move + suggestion
+    next_turn(state)
+
+    # Turn 2: Bob makes a wrong accusation and is eliminated.
+    bob = get_current_player(state)
+    assert bob.name == "Bob"
+    result_bob = make_accusation(
+        state, bob,
+        suspect=sol["suspect"].name,
+        weapon=wrong_weapon,
+        room=sol["room"].name,
+    )
+    assert result_bob.correct is False
+    assert bob.is_eliminated is True
+    assert state.game_over is False
+
+    # Turn 3 (auto-advanced to Carol): Carol makes a wrong accusation and is eliminated.
+    carol = get_current_player(state)
+    assert carol.name == "Carol"
+    result_carol = make_accusation(
+        state, carol,
+        suspect=sol["suspect"].name,
+        weapon=wrong_weapon,
+        room=sol["room"].name,
+    )
+    assert result_carol.correct is False
+    assert carol.is_eliminated is True
+    assert state.game_over is False
+
+    # Turn 4 (auto-advanced to Dave): Dave makes the correct accusation and wins.
+    dave = get_current_player(state)
+    assert dave.name == "Dave"
+    result_dave = make_accusation(
+        state, dave,
+        suspect=sol["suspect"].name,
+        weapon=sol["weapon"].name,
+        room=sol["room"].name,
+    )
+    assert result_dave.correct is True
+    assert state.game_over is True
+    assert state.winner == "Dave"
+
+    status = get_game_status(state)
+    assert status["game_over"] is True
+    assert status["winner"] == "Dave"
+    assert status["players_remaining"] == 2  # Alice and Dave still active
