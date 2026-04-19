@@ -125,10 +125,6 @@ Other players must refute if possible by showing one matching card.
 * Correct accusation wins the game
 * Incorrect accusation removes player from future accusations
 
-### Player Flow
-
-Players continue turns correctly after accusations.
-
 ## Functional Requirements
 
 | ID | Requirement                             |
@@ -145,13 +141,6 @@ Players continue turns correctly after accusations.
 | NF1 | Interface remains clear and usable          |
 | NF2 | No crashes during complete gameplay         |
 | NF3 | System responds correctly to player actions |
-
-## User Stories
-
-US1: As a player, I want to make suggestions so I can gather clues.
-US2: As a player, I want other players to refute suggestions fairly.
-US3: As a player, I want accusations to correctly determine winners.
-US4: As a player, I want the game to continue smoothly after wrong accusations.
 
 ## Sprint 2 Backlog
 
@@ -183,32 +172,6 @@ This sprint prioritises bug fixing, polish, clearer feedback, and stronger valid
 * End game screen added
 * System handles edge cases correctly
 
-## Features
-
-### Validation
-
-Invalid actions are rejected correctly.
-
-### Feedback
-
-Suggestions, accusations, and turns are clearly shown.
-
-### End Game
-
-Winner displayed clearly.
-
-### Edge Cases
-
-Last remaining player wins if applicable.
-
-## Functional Requirements
-
-| ID  | Requirement                           |
-| --- | ------------------------------------- |
-| F9  | Invalid player actions rejected       |
-| F10 | Winner announcement displayed clearly |
-| F11 | Edge cases handled correctly          |
-
 ## Non-Functional Requirements
 
 | ID  | Requirement                         |
@@ -239,7 +202,7 @@ Last remaining player wins if applicable.
 ## Sprint 4 Goal
 
 Preparing final Cluedo project for submission.
-This sprint prioritises stability, final testing, evidence, report completion, and demo readiness.
+This sprint prioritises stability, final testing, evidence, report completion, and preparing the demo.
 
 ## Sprint 4 Scope
 
@@ -248,38 +211,14 @@ This sprint prioritises stability, final testing, evidence, report completion, a
 * All evidence completed
 * Final version ready for demo
 
-## Features
+## Final Acceptance Criteria
 
-### Final Bug Fixes
-
-Remaining issues resolved.
-
-### Testing
-
-All system tests completed.
-
-### Demo
-
-Full working gameplay recorded.
-
-### Submission
-
-Report and files finalised.
-
-## Functional Requirements
-
-| ID  | Requirement                          |
-| --- | ------------------------------------ |
-| F12 | Final version fully playable         |
-| F13 | All core mechanics working correctly |
-
-## Non-Functional Requirements
-
-| ID  | Requirement                  |
-| --- | ---------------------------- |
-| NF1 | Stable release build         |
-| NF2 | No major bugs remain         |
-| NF3 | Project ready for submission |
+* Game runs successfully from start to finish
+* All core mechanics work correctly
+* No major bugs remain
+* Testing evidence completed
+* Report completed
+* Project ready for submission
 
 ## Sprint 4 Backlog
 
@@ -295,9 +234,3 @@ Report and files finalised.
 | Assemble submission pack     | Adam        |
 | Documentation and tracking   | Adam        |
 | Complete report              | All Members |
-
-
-
-
-
-
