@@ -73,9 +73,6 @@ US2: As a player, I want cards dealt fairly so the game is unbiased.
 US3: As a player, I want turns to rotate automatically so gameplay flows smoothly.
 US4: As a player, I want to move into a room so I can investigate.
 US5: As a player, I want to make suggestions to gather clues.
-US6: As a player, I want other players to refute my suggestion if they can.
-US7: As a player, I want to make an accusation when I believe I solved the mystery.
-US8: As a player, I should be penalised for an incorrect accusation to maintain fairness.
 
 ## Sprint 1 Backlog
 
