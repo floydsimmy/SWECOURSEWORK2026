@@ -217,12 +217,6 @@ Last remaining player wins if applicable.
 | NF2 | No crashes during valid gameplay    |
 | NF3 | Faster and smoother user experience |
 
-## User Stories
-
-US1: As a player, I want clear messages so I understand what is happening.
-US2: As a player, I want mistakes handled properly.
-US3: As a player, I want the game to feel polished and complete.
-
 ## Sprint 3 Backlog
 
 | Task                                 | Owner       |
@@ -286,12 +280,6 @@ Report and files finalised.
 | NF1 | Stable release build         |
 | NF2 | No major bugs remain         |
 | NF3 | Project ready for submission |
-
-## User Stories
-
-US1: As a lecturer, I want a stable working project to assess.
-US2: As a user, I want the final version to run smoothly.
-US3: As a team member, I want all submission evidence complete.
 
 ## Sprint 4 Backlog
 
