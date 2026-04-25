@@ -1,0 +1,23 @@
+# Python build artefacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# IDE / editor metadata
+.idea/
+.vscode/
+.claude/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Legacy internal docs folder (canonical CLAUDE.md is at repo root)
+src/docs/
+
+# Build outputs
+dist/
+build/
+*.egg-info/
