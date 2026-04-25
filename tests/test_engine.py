@@ -1188,3 +1188,153 @@ def test_full_game_regression() -> None:
     assert status["game_over"] is True
     assert status["winner"] == "Dave"
     assert status["players_remaining"] == 2  # Alice and Dave still active
+
+
+# ---------------------------------------------------------------------------
+# Sprint 3 closure — F12 (domain): suggested suspect & weapon tokens move
+# into the suggester's current room and STAY there after refutation.
+# ---------------------------------------------------------------------------
+
+
+def test_f12_suspect_token_moves_into_suggesters_room() -> None:
+    """F12: a suggested suspect token is placed in the suggester's room."""
+    state = new_game(["Alice", "Bob", "Carol"], seed=42)
+    alice = state.players[0]
+    alice.current_room = "Kitchen"
+
+    make_suggestion(state, alice, suspect="Miss Scarlet", weapon="Knife")
+
+    assert state.suspect_locations["Miss Scarlet"] == "Kitchen"
+
+
+def test_f12_weapon_token_moves_into_suggesters_room() -> None:
+    """F12: a suggested weapon token is placed in the suggester's room."""
+    state = new_game(["Alice", "Bob", "Carol"], seed=42)
+    alice = state.players[0]
+    alice.current_room = "Library"
+
+    make_suggestion(state, alice, suspect="Miss Scarlet", weapon="Rope")
+
+    assert state.weapon_locations["Rope"] == "Library"
+
+
+def test_f12_tokens_stay_after_refutation() -> None:
+    """F12: tokens stay in the suggester's room even after a refuter shows a card."""
+    state = new_game(["Alice", "Bob", "Carol"], seed=42)
+    alice = state.players[0]
+    bob = state.players[1]
+    # Bob holds Knife so refutation will succeed.
+    bob.hand = [Card(card_type="weapon", name="Knife")]
+    alice.current_room = "Ballroom"
+
+    result = make_suggestion(state, alice, suspect="Miss Scarlet", weapon="Knife")
+
+    assert result.refuted is True
+    # Tokens remain in Ballroom regardless of refutation outcome.
+    assert state.suspect_locations["Miss Scarlet"] == "Ballroom"
+    assert state.weapon_locations["Knife"] == "Ballroom"
+
+
+def test_f12_token_locations_initialised_for_every_card() -> None:
+    """F12: every suspect and weapon name is keyed in the location dicts at setup."""
+    state = new_game(["Alice", "Bob", "Carol"], seed=42)
+    assert set(state.suspect_locations.keys()) == set(SUSPECTS)
+    assert set(state.weapon_locations.keys()) == set(WEAPONS)
+    # All start unplaced.
+    assert all(v is None for v in state.suspect_locations.values())
+    assert all(v is None for v in state.weapon_locations.values())
+
+
+# ---------------------------------------------------------------------------
+# Sprint 3 closure — seeded reproducibility (§4.3 of CLAUDE.md)
+# ---------------------------------------------------------------------------
+
+
+def test_seeded_reproducibility() -> None:
+    """new_game with the same seed produces identical solution, deals, and turn order."""
+    s1 = new_game(["Alice", "Bob", "Carol"], seed=12345)
+    s2 = new_game(["Alice", "Bob", "Carol"], seed=12345)
+
+    # Solution identical (suspect / weapon / room).
+    for k in ("suspect", "weapon", "room"):
+        assert s1.solution[k].card_type == s2.solution[k].card_type
+        assert s1.solution[k].name == s2.solution[k].name
+
+    # Hands dealt identically, in the same order.
+    for p1, p2 in zip(s1.players, s2.players):
+        h1 = [(c.card_type, c.name) for c in p1.hand]
+        h2 = [(c.card_type, c.name) for c in p2.hand]
+        assert h1 == h2
+
+    # Turn order is identical (player names are in the same slots).
+    assert [p.name for p in s1.players] == [p.name for p in s2.players]
+    assert s1.current_turn_index == s2.current_turn_index
+
+
+def test_unseeded_games_can_diverge() -> None:
+    """Sanity check: without a seed, two new_game runs are not bit-identical.
+
+    Probabilistic; if this ever fires from a freak collision, re-run.
+    A solution-collision across two unseeded games is a 1-in-324 event.
+    """
+    runs = [new_game(["Alice", "Bob", "Carol"]) for _ in range(8)]
+    seen = {(s.solution["suspect"].name,
+             s.solution["weapon"].name,
+             s.solution["room"].name) for s in runs}
+    assert len(seen) > 1, "8 unseeded games all produced the same solution"
+
+
+# ---------------------------------------------------------------------------
+# Sprint 3 closure — §5 contract: Card-typed signatures accepted
+# ---------------------------------------------------------------------------
+
+
+def test_card_typed_signatures_accepted_for_suggestion() -> None:
+    """make_suggestion accepts Card instances per the §5 contract."""
+    state = new_game(["Alice", "Bob", "Carol"], seed=42)
+    alice = state.players[0]
+    alice.current_room = "Kitchen"
+
+    suspect_card = Card(card_type="suspect", name="Miss Scarlet")
+    weapon_card = Card(card_type="weapon", name="Knife")
+
+    result = make_suggestion(state, alice, suspect=suspect_card, weapon=weapon_card)
+
+    # Returned a RefuteResult of either polarity (we don't care which).
+    assert isinstance(result.refuted, bool)
+    # F12 placement still happens when Card instances are passed.
+    assert state.suspect_locations["Miss Scarlet"] == "Kitchen"
+    assert state.weapon_locations["Knife"] == "Kitchen"
+
+
+def test_card_typed_signatures_accepted_for_accusation() -> None:
+    """make_accusation accepts Card instances per the §5 contract."""
+    state = new_game(["Alice", "Bob", "Carol"], seed=42)
+    alice = state.players[0]
+    sol = state.solution
+
+    suspect_card = Card(card_type="suspect", name=sol["suspect"].name)
+    weapon_card = Card(card_type="weapon", name=sol["weapon"].name)
+    room_card = Card(card_type="room", name=sol["room"].name)
+
+    result = make_accusation(
+        state, alice,
+        suspect=suspect_card,
+        weapon=weapon_card,
+        room=room_card,
+    )
+
+    assert result.correct is True
+    assert state.winner == "Alice"
+
+
+def test_card_with_wrong_card_type_rejected() -> None:
+    """Passing a Card with the wrong card_type to a slot is a clear error."""
+    state = new_game(["Alice", "Bob", "Carol"], seed=42)
+    alice = state.players[0]
+    alice.current_room = "Kitchen"
+
+    # A weapon card in the suspect slot is a programming error; reject it.
+    wrong = Card(card_type="weapon", name="Knife")
+    with pytest.raises(ValueError, match="suspect"):
+        make_suggestion(state, alice, suspect=wrong, weapon="Rope")

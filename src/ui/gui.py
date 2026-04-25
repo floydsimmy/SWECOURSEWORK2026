@@ -28,8 +28,8 @@
 
 import pygame
 from typing import Optional
-from src.game.models import GameState
-from src.game.deck import ROOMS
+from game.models import GameState
+from game.deck import ROOMS
 
 
 class Board:

@@ -16,7 +16,7 @@
 
 import pygame
 from typing import Optional, List
-from src.game.engine import (
+from game.engine import (
     new_game,
     get_current_player,
     move_to_room,
@@ -26,9 +26,9 @@ from src.game.engine import (
     get_game_status,
     check_for_winner
 )
-from src.game.models import GameState, Player
-from src.game.deck import SUSPECTS, WEAPONS, ROOMS
-from src.ui.components import Button, TextInput, CardDisplay, DropdownMenu, MessageBox
+from game.models import Card, GameState, Player
+from game.deck import SUSPECTS, WEAPONS, ROOMS
+from ui.components import Button, TextInput, CardDisplay, DropdownMenu, MessageBox
 
 
 class Screen:
@@ -462,11 +462,18 @@ class GameScreen(Screen):
 
         try:
             player = get_current_player(self.game_state)
-            result = make_suggestion(self.game_state, player, suspect, weapon)
+            # §5 contract: pass Card instances, not bare strings.
+            suspect_card = Card(card_type="suspect", name=suspect)
+            weapon_card = Card(card_type="weapon", name=weapon)
+            result = make_suggestion(self.game_state, player, suspect_card, weapon_card)
 
             room = player.current_room
             msg = f"{player.name} suggests: {suspect} with {weapon} in {room}"
             self._add_message(msg)
+            # F12 visibility: surface the engine's token-move side effect.
+            self._add_message(
+                f"  -> {suspect} token moved to {room}; {weapon} token moved to {room}"
+            )
 
             if result.refuted:
                 msg = f"{result.refuting_player} refutes! (showed {result.card_shown.name})"
@@ -490,7 +497,13 @@ class GameScreen(Screen):
 
         try:
             player = get_current_player(self.game_state)
-            result = make_accusation(self.game_state, player, suspect, weapon, room)
+            # §5 contract: pass Card instances, not bare strings.
+            suspect_card = Card(card_type="suspect", name=suspect)
+            weapon_card = Card(card_type="weapon", name=weapon)
+            room_card = Card(card_type="room", name=room)
+            result = make_accusation(
+                self.game_state, player, suspect_card, weapon_card, room_card
+            )
 
             msg = f"{player.name} accuses: {suspect} with {weapon} in {room}"
             self._add_message(msg)
