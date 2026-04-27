@@ -14,6 +14,7 @@ Public API (consumed by tests and the UI):
 from __future__ import annotations
 
 import random
+from typing import Callable
 
 from .deck import (
     EXPECTED_DECK_SIZE,
@@ -24,9 +25,13 @@ from .deck import (
     verify_deck,
 )
 from .models import (
+    AI_PLAYER,
     AccusationResult,
     Card,
+    DetectiveNotes,
     GameState,
+    HUMAN_PLAYER,
+    PLAYER_TYPES,
     Player,
     RefuteResult,
 )
@@ -40,7 +45,11 @@ MAX_PLAYERS = 6
 # ---------------------------------------------------------------------------
 
 
-def new_game(player_names: list[str], seed: int | None = None) -> GameState:
+def new_game(
+    player_names: list[str],
+    seed: int | None = None,
+    player_types: list[str] | None = None,
+) -> GameState:
     """Create and start a fresh game for the given player names.
 
     Validates the player count (3–6), uniqueness, and that no name is
@@ -52,9 +61,17 @@ def new_game(player_names: list[str], seed: int | None = None) -> GameState:
     => same solution, same deal, same turn order. None => non-deterministic.
     """
     _validate_player_names(player_names)
+    normalised_player_types = _normalise_player_types(player_names, player_types)
 
     rng = random.Random(seed)
-    players = [Player(name=name) for name in player_names]
+    players = [
+        Player(
+            name=name,
+            player_type=normalised_player_types[index],
+            character=SUSPECTS[index % len(SUSPECTS)],
+        )
+        for index, name in enumerate(player_names)
+    ]
     deck = create_deck()
 
     solution = _draw_solution(deck, rng)
@@ -66,7 +83,7 @@ def new_game(player_names: list[str], seed: int | None = None) -> GameState:
     suspect_locations: dict[str, str | None] = {name: None for name in SUSPECTS}
     weapon_locations: dict[str, str | None] = {name: None for name in WEAPONS}
 
-    return GameState(
+    state = GameState(
         players=players,
         solution=solution,
         current_turn_index=0,
@@ -74,11 +91,17 @@ def new_game(player_names: list[str], seed: int | None = None) -> GameState:
         suspect_locations=suspect_locations,
         weapon_locations=weapon_locations,
     )
+    _initialise_ai_notes(state)
+    return state
 
 
-def reset_game(player_names: list[str], seed: int | None = None) -> GameState:
+def reset_game(
+    player_names: list[str],
+    seed: int | None = None,
+    player_types: list[str] | None = None,
+) -> GameState:
     """Return a brand-new game for the same (or any) set of player names."""
-    return new_game(player_names, seed=seed)
+    return new_game(player_names, seed=seed, player_types=player_types)
 
 
 def _validate_player_names(names: list[str]) -> None:
@@ -91,6 +114,60 @@ def _validate_player_names(names: list[str]) -> None:
         raise ValueError("player names must be non-empty")
     if len(set(names)) != len(names):
         raise ValueError("player names must be unique")
+
+
+def _normalise_player_types(
+    names: list[str],
+    player_types: list[str] | None,
+) -> list[str]:
+    """Return one player type per name, defaulting to human players."""
+    if player_types is None:
+        return [HUMAN_PLAYER for _ in names]
+    if len(player_types) != len(names):
+        raise ValueError("player_types must match player_names length")
+
+    normalised = [kind.lower() for kind in player_types]
+    for kind in normalised:
+        if kind not in PLAYER_TYPES:
+            raise ValueError(f"unknown player type: {kind!r}")
+    return normalised
+
+
+def _initialise_ai_notes(state: GameState) -> None:
+    """Create private notes for AI players from only their own hands."""
+    for player in state.players:
+        if player.player_type != AI_PLAYER:
+            player.ai_notes = None
+            continue
+
+        notes = DetectiveNotes(
+            possible_suspects=set(SUSPECTS),
+            possible_weapons=set(WEAPONS),
+            possible_rooms=set(ROOMS),
+        )
+        for card in player.hand:
+            _record_known_card(notes, card, owned=True)
+        player.ai_notes = notes
+
+
+def _record_known_card(
+    notes: DetectiveNotes,
+    card: Card,
+    *,
+    owned: bool = False,
+) -> None:
+    key = (card.card_type, card.name)
+    if owned:
+        notes.owned_cards.add(key)
+    notes.seen_cards.add(key)
+    notes.known_not_in_envelope.add(key)
+
+    if card.card_type == "suspect":
+        notes.possible_suspects.discard(card.name)
+    elif card.card_type == "weapon":
+        notes.possible_weapons.discard(card.name)
+    elif card.card_type == "room":
+        notes.possible_rooms.discard(card.name)
 
 
 def _draw_solution(deck: list[Card], rng: random.Random) -> dict[str, Card]:
@@ -185,6 +262,7 @@ def make_suggestion(
     player: Player,
     suspect: Card | str,
     weapon: Card | str,
+    refute_card_chooser: Callable[[Player, list[Card]], Card] | None = None,
 ) -> RefuteResult:
     """Make a suggestion in the current player's room.
 
@@ -196,8 +274,9 @@ def make_suggestion(
     refutation outcome.
 
     Refutation walks players in turn order starting immediately after
-    the suggester, skipping eliminated ones. The first matching card
-    held by an active player is shown; the suggester's turn does NOT
+    the suggester. Eliminated players are still checked because wrong
+    accusers stop taking normal turns but keep showing cards when they
+    can refute. The first matching card is shown; the suggester's turn does NOT
     advance — they may still choose to accuse.
 
     `suspect` and `weapon` accept either a `Card` (per the §5 contract)
@@ -242,15 +321,23 @@ def make_suggestion(
     for step in range(1, n):
         idx = (suggester_idx + step) % n
         other = state.players[idx]
-        if other.is_eliminated:
-            continue
-        for card in other.hand:
-            if (card.card_type, card.name) in suggested:
-                return RefuteResult(
-                    refuted=True,
-                    refuting_player=other.name,
-                    card_shown=card,
-                )
+        matching_cards = [
+            card for card in other.hand
+            if (card.card_type, card.name) in suggested
+        ]
+        if matching_cards:
+            card_shown = (
+                refute_card_chooser(other, matching_cards)
+                if refute_card_chooser
+                else matching_cards[0]
+            )
+            if card_shown not in matching_cards:
+                raise ValueError("refute_card_chooser must return a matching card")
+            return RefuteResult(
+                refuted=True,
+                refuting_player=other.name,
+                card_shown=card_shown,
+            )
 
     return RefuteResult(refuted=False)
 
@@ -354,6 +441,8 @@ def validate_game_state(state: GameState) -> bool:
 
     all_cards: list[Card] = []
     for p in state.players:
+        if p.player_type not in PLAYER_TYPES:
+            raise ValueError(f"unknown player type: {p.player_type!r}")
         all_cards.extend(p.hand)
     all_cards.extend(state.solution.values())
 
