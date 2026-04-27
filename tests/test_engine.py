@@ -278,14 +278,14 @@ def test_make_suggestion_requires_room() -> None:
         make_suggestion(state, player, suspect="Miss Scarlet", weapon="Knife")
 
 
-def test_make_suggestion_skips_eliminated_players() -> None:
-    """make_suggestion skips eliminated players when looking for a refuter."""
+def test_make_suggestion_allows_eliminated_players_to_refute() -> None:
+    """Eliminated players can still show cards when refuting a suggestion."""
     state = _make_state(["Alice", "Bob", "Carol"])
     alice = state.players[0]
     bob = state.players[1]
     carol = state.players[2]
 
-    # Bob has a matching card but is eliminated; Carol has nothing.
+    # Bob has a matching card and is eliminated; he should still refute.
     bob.hand = [Card(card_type="weapon", name="Rope")]
     bob.is_eliminated = True
     carol.hand = []
@@ -294,7 +294,9 @@ def test_make_suggestion_skips_eliminated_players() -> None:
 
     result = make_suggestion(state, alice, suspect="Miss Scarlet", weapon="Rope")
 
-    assert result.refuted is False
+    assert result.refuted is True
+    assert result.refuting_player == "Bob"
+    assert result.card_shown == bob.hand[0]
 
 
 # ---------------------------------------------------------------------------
@@ -413,32 +415,30 @@ def test_refutation_turn_order() -> None:
     assert result.refuting_player == "Bob"
 
 
-def test_refutation_skips_eliminated() -> None:
-    """Eliminated players are bypassed; the next active player is the refuter."""
+def test_refutation_includes_eliminated_players_in_turn_order() -> None:
+    """Eliminated players keep refuting but remain skipped for normal turns."""
     state = _make_state(["Alice", "Bob", "Carol"])
     alice = state.players[0]
     bob = state.players[1]
     carol = state.players[2]
 
     alice.current_room = "Library"
-    # Bob is eliminated and holds a match; Carol (active) also holds a match.
+    # Bob is eliminated and holds a match; Carol also holds a match.
     bob.hand = [Card(card_type="weapon", name="Knife")]
     bob.is_eliminated = True
     carol.hand = [Card(card_type="weapon", name="Knife")]
 
     result = make_suggestion(state, alice, suspect="Colonel Mustard", weapon="Knife")
 
-    # Bob is skipped; Carol refutes.
     assert result.refuted is True
-    assert result.refuting_player == "Carol"
+    assert result.refuting_player == "Bob"
 
 
 def test_eliminated_cards_still_refute() -> None:
     """An eliminated player's hand is preserved (cards not cleared on elimination).
 
-    Even though eliminated players are skipped during active refutation, the
-    engine must not erase their cards — the hand remains intact in the game
-    state for inspection.
+    Eliminated players are skipped for normal turns, but their cards remain
+    available for suggestion refutation and state inspection.
     """
     state = _make_state(["Alice", "Bob", "Carol"])
     bob = state.players[1]

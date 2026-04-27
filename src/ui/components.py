@@ -208,8 +208,10 @@ class CardDisplay:
             y_offset += 25
 
 
-class DropdownMenu:
-    """A dropdown menu for selecting options."""
+class PopupSelect:
+    """A stable select field that opens options in a separate popup."""
+
+    active_select: Optional["PopupSelect"] = None
 
     def __init__(
             self,
@@ -218,87 +220,123 @@ class DropdownMenu:
             width: int,
             height: int,
             options: list[str],
-            label: str = "Select"
+            label: str = "Select",
+            max_visible_options: int = 6
     ):
         self.rect = pygame.Rect(x, y, width, height)
         self.options = options
         self.selected = None
-        self.is_open = False
         self.label = label
         self.font = pygame.font.Font(None, 28)
+        self.small_font = pygame.font.Font(None, 22)
+        self.is_open = False
+        self.scroll_offset = 0
 
-        # Calculate dropdown panel height
         self.option_height = 40
-        self.panel_height = min(len(options) * self.option_height, 300)
+        self.max_visible_options = max(1, max_visible_options)
+        self.visible_option_count = min(len(options), self.max_visible_options)
+        self.popup_rect = pygame.Rect(0, 0, width, self._popup_height())
 
     def draw(self, screen: pygame.Surface) -> None:
-        """Draw the dropdown menu."""
-        # Main button
+        """Draw the closed select field."""
         bg_color = (255, 255, 255)
+        border_color = (41, 128, 185) if self.is_open else (52, 152, 219)
         pygame.draw.rect(screen, bg_color, self.rect, border_radius=5)
-        pygame.draw.rect(screen, (52, 152, 219), self.rect, 2, border_radius=5)
+        pygame.draw.rect(screen, border_color, self.rect, 2, border_radius=5)
 
-        # Display selected or label
         display_text = self.selected if self.selected else self.label
-        text_surface = self.font.render(display_text, True, (0, 0, 0))
-        screen.blit(text_surface, (self.rect.x + 10, self.rect.y + 10))
+        text = self._truncate(display_text, self.font, self.rect.width - 44)
+        text_color = (0, 0, 0) if self.selected else (105, 114, 124)
+        text_surface = self.font.render(text, True, text_color)
+        text_rect = text_surface.get_rect(midleft=(self.rect.x + 10, self.rect.centery))
+        screen.blit(text_surface, text_rect)
 
         # Arrow
         arrow = "▼" if not self.is_open else "▲"
         arrow_surface = self.font.render(arrow, True, (0, 0, 0))
         screen.blit(arrow_surface, (self.rect.right - 30, self.rect.y + 10))
+        arrow_cover = pygame.Rect(self.rect.right - 36, self.rect.y + 3, 32, self.rect.height - 6)
+        pygame.draw.rect(screen, bg_color, arrow_cover)
+        arrow_points = [
+            (self.rect.right - 25, self.rect.centery - 4),
+            (self.rect.right - 13, self.rect.centery - 4),
+            (self.rect.right - 19, self.rect.centery + 5),
+        ]
+        pygame.draw.polygon(screen, (0, 0, 0), arrow_points)
 
-        # Dropdown panel
-        if self.is_open:
-            panel_rect = pygame.Rect(
-                self.rect.x,
-                self.rect.bottom,
-                self.rect.width,
-                self.panel_height
+    def draw_popup(self, screen: pygame.Surface) -> None:
+        """Draw the separate popup list above the main form."""
+        if not self.is_open:
+            return
+
+        popup = self.popup_rect
+        shadow = popup.move(4, 4)
+        pygame.draw.rect(screen, (0, 0, 0), shadow, border_radius=8)
+        pygame.draw.rect(screen, (255, 255, 255), popup, border_radius=8)
+        pygame.draw.rect(screen, (52, 73, 94), popup, 2, border_radius=8)
+
+        header_rect = pygame.Rect(popup.x, popup.y, popup.width, 36)
+        pygame.draw.rect(
+            screen,
+            (52, 73, 94),
+            header_rect,
+            border_top_left_radius=8,
+            border_top_right_radius=8,
+        )
+        header_text = self.small_font.render(self.label, True, (236, 240, 241))
+        screen.blit(header_text, (header_rect.x + 12, header_rect.y + 9))
+
+        list_top = popup.y + 36
+        option_area_width = popup.width - (14 if self._needs_scrollbar() else 0)
+        visible_options = self.options[
+            self.scroll_offset:self.scroll_offset + self.visible_option_count
+        ]
+        mouse_pos = pygame.mouse.get_pos()
+
+        for i, option in enumerate(visible_options):
+            option_rect = pygame.Rect(
+                popup.x,
+                list_top + i * self.option_height,
+                option_area_width,
+                self.option_height
             )
-            pygame.draw.rect(screen, (255, 255, 255), panel_rect)
-            pygame.draw.rect(screen, (52, 152, 219), panel_rect, 2)
+            if option_rect.collidepoint(mouse_pos):
+                pygame.draw.rect(screen, (230, 240, 255), option_rect)
+            if option == self.selected:
+                pygame.draw.rect(screen, (213, 232, 249), option_rect)
 
-            # Options
-            for i, option in enumerate(self.options):
-                option_rect = pygame.Rect(
-                    self.rect.x,
-                    self.rect.bottom + i * self.option_height,
-                    self.rect.width,
-                    self.option_height
-                )
+            text = self._truncate(option, self.font, option_area_width - 20)
+            option_text = self.font.render(text, True, (0, 0, 0))
+            text_rect = option_text.get_rect(midleft=(option_rect.x + 10, option_rect.centery))
+            screen.blit(option_text, text_rect)
 
-                # Hover effect
-                mouse_pos = pygame.mouse.get_pos()
-                if option_rect.collidepoint(mouse_pos):
-                    pygame.draw.rect(screen, (230, 240, 255), option_rect)
+        if self._needs_scrollbar():
+            self._draw_scrollbar(screen)
 
-                option_text = self.font.render(option, True, (0, 0, 0))
-                screen.blit(option_text, (option_rect.x + 10, option_rect.y + 10))
+    def handle_event(
+            self,
+            event: pygame.event.Event,
+            window_rect: pygame.Rect
+    ) -> bool:
+        """Handle selector events. Returns True when the event is consumed."""
+        if event.type == pygame.MOUSEWHEEL and self.is_open:
+            self.scroll_offset = self._clamp_scroll_offset(self.scroll_offset - event.y)
+            return True
 
-    def handle_event(self, event: pygame.event.Event) -> bool:
-        """Handle mouse events. Returns True if selection changed."""
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self.rect.collidepoint(event.pos):
-                self.is_open = not self.is_open
-                return False
+                if self.is_open:
+                    self.close()
+                else:
+                    self.open(window_rect)
+                return True
 
-            elif self.is_open:
-                # Check if clicking an option
-                for i, option in enumerate(self.options):
-                    option_rect = pygame.Rect(
-                        self.rect.x,
-                        self.rect.bottom + i * self.option_height,
-                        self.rect.width,
-                        self.option_height
-                    )
-                    if option_rect.collidepoint(event.pos):
-                        self.selected = option
-                        self.is_open = False
-                        return True
-
-                # Clicked outside, close dropdown
-                self.is_open = False
+            if self.is_open:
+                if self.popup_rect.collidepoint(event.pos):
+                    self._select_at(event.pos)
+                else:
+                    self.close()
+                return True
 
         return False
 
@@ -309,7 +347,118 @@ class DropdownMenu:
     def reset(self) -> None:
         """Reset the selection."""
         self.selected = None
+        self.scroll_offset = 0
+        self.close()
+
+    def open(self, window_rect: pygame.Rect) -> None:
+        """Open this selector and close any other active selector."""
+        if PopupSelect.active_select and PopupSelect.active_select is not self:
+            PopupSelect.active_select.close()
+        self.is_open = True
+        PopupSelect.active_select = self
+        self.scroll_offset = self._clamp_scroll_offset(self.scroll_offset)
+        self._position_popup(window_rect)
+
+    def close(self) -> None:
+        """Close the selector popup."""
         self.is_open = False
+        if PopupSelect.active_select is self:
+            PopupSelect.active_select = None
+
+    @classmethod
+    def get_active(cls) -> Optional["PopupSelect"]:
+        """Return the currently open select, if any."""
+        return cls.active_select
+
+    @classmethod
+    def close_active(cls) -> None:
+        """Close whichever select is currently open."""
+        if cls.active_select:
+            cls.active_select.close()
+
+    def _select_at(self, pos: tuple[int, int]) -> None:
+        list_top = self.popup_rect.y + 36
+        if pos[1] < list_top:
+            return
+
+        option_area_width = self.popup_rect.width - (14 if self._needs_scrollbar() else 0)
+        option_area = pygame.Rect(
+            self.popup_rect.x,
+            list_top,
+            option_area_width,
+            self.visible_option_count * self.option_height
+        )
+        if not option_area.collidepoint(pos):
+            return
+
+        visible_index = (pos[1] - list_top) // self.option_height
+        option_index = self.scroll_offset + visible_index
+        if 0 <= option_index < len(self.options):
+            self.selected = self.options[option_index]
+            self.close()
+
+    def _position_popup(self, window_rect: pygame.Rect) -> None:
+        popup_width = max(self.rect.width, self._preferred_popup_width())
+        popup_width = min(popup_width, 300, window_rect.width - 24)
+        popup_height = self._popup_height()
+
+        x = self.rect.x - popup_width - 12
+        if x < window_rect.x + 12:
+            x = self.rect.x
+        x = min(x, window_rect.right - popup_width - 12)
+
+        y = self.rect.y
+        y = max(window_rect.y + 12, min(y, window_rect.bottom - popup_height - 12))
+
+        self.popup_rect = pygame.Rect(x, y, popup_width, popup_height)
+
+    def _popup_height(self) -> int:
+        return 36 + self.visible_option_count * self.option_height
+
+    def _preferred_popup_width(self) -> int:
+        longest = max((self.font.size(option)[0] for option in self.options), default=0)
+        return longest + 44
+
+    def _needs_scrollbar(self) -> bool:
+        return len(self.options) > self.visible_option_count
+
+    def _max_scroll_offset(self) -> int:
+        return max(0, len(self.options) - self.visible_option_count)
+
+    def _clamp_scroll_offset(self, value: int) -> int:
+        return max(0, min(value, self._max_scroll_offset()))
+
+    def _draw_scrollbar(self, screen: pygame.Surface) -> None:
+        """Draw a compact scrollbar for long option lists."""
+        track_rect = pygame.Rect(
+            self.popup_rect.right - 10,
+            self.popup_rect.y + 42,
+            6,
+            self.popup_rect.height - 48
+        )
+        pygame.draw.rect(screen, (220, 225, 230), track_rect, border_radius=3)
+
+        ratio = self.visible_option_count / len(self.options)
+        thumb_height = max(24, int(track_rect.height * ratio))
+        max_offset = self._max_scroll_offset()
+        if max_offset == 0:
+            thumb_y = track_rect.y
+        else:
+            travel = track_rect.height - thumb_height
+            thumb_y = track_rect.y + int(travel * (self.scroll_offset / max_offset))
+
+        thumb_rect = pygame.Rect(track_rect.x, thumb_y, track_rect.width, thumb_height)
+        pygame.draw.rect(screen, (52, 152, 219), thumb_rect, border_radius=3)
+
+    def _truncate(self, text: str, font: pygame.font.Font, max_width: int) -> str:
+        if font.size(text)[0] <= max_width:
+            return text
+
+        ellipsis = "..."
+        trimmed = text
+        while trimmed and font.size(trimmed + ellipsis)[0] > max_width:
+            trimmed = trimmed[:-1]
+        return trimmed + ellipsis if trimmed else ellipsis
 
 
 class MessageBox:

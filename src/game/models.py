@@ -9,6 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+HUMAN_PLAYER = "human"
+AI_PLAYER = "ai"
+PLAYER_TYPES = {HUMAN_PLAYER, AI_PLAYER}
+
 
 @dataclass
 class Card:
@@ -26,6 +30,25 @@ class Card:
 
 
 @dataclass
+class DetectiveNotes:
+    """Private card knowledge for one computer-controlled player.
+
+    These notes are deliberately populated only from information the
+    player is allowed to know: their own hand, cards shown directly to
+    them, and public suggestion outcomes.
+    """
+
+    owned_cards: set[tuple[str, str]] = field(default_factory=set)
+    seen_cards: set[tuple[str, str]] = field(default_factory=set)
+    known_not_in_envelope: set[tuple[str, str]] = field(default_factory=set)
+    possible_suspects: set[str] = field(default_factory=set)
+    possible_weapons: set[str] = field(default_factory=set)
+    possible_rooms: set[str] = field(default_factory=set)
+    suggestion_history: list[dict] = field(default_factory=list)
+    failed_disprovals: list[dict] = field(default_factory=list)
+
+
+@dataclass
 class Player:
     """A player at the table.
 
@@ -38,6 +61,9 @@ class Player:
     hand: list[Card] = field(default_factory=list)
     current_room: str | None = None
     is_eliminated: bool = False
+    player_type: str = HUMAN_PLAYER
+    character: str | None = None
+    ai_notes: DetectiveNotes | None = None
 
     def __str__(self) -> str:
         room = self.current_room if self.current_room else "no room"

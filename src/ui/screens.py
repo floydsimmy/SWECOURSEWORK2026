@@ -16,6 +16,11 @@
 
 import pygame
 from typing import Optional, List
+from game.ai import (
+    AITurnResult,
+    is_ai_player,
+    take_ai_turn,
+)
 from game.engine import (
     new_game,
     get_current_player,
@@ -26,9 +31,10 @@ from game.engine import (
     get_game_status,
     check_for_winner
 )
-from game.models import Card, GameState, Player
+from game.models import AI_PLAYER, Card, GameState, HUMAN_PLAYER, Player
 from game.deck import SUSPECTS, WEAPONS, ROOMS
-from ui.components import Button, TextInput, CardDisplay, DropdownMenu, MessageBox
+from ui.components import Button, TextInput, CardDisplay, PopupSelect, MessageBox
+from ui.gui import Board
 
 
 class Screen:
@@ -139,21 +145,36 @@ class SetupScreen(Screen):
         self.max_players = 6
         self.min_players = 3
         self.input_fields: List[TextInput] = []
+        self.player_types: List[str] = [HUMAN_PLAYER for _ in range(self.max_players)]
+        self.type_buttons: List[Button] = []
 
         input_width = 400
         input_height = 50
         start_y = 180
         spacing = 70
+        input_x = (self.width - input_width) // 2
 
         for i in range(self.max_players):
             text_input = TextInput(
-                (self.width - input_width) // 2,
+                input_x,
                 start_y + i * spacing,
                 input_width,
                 input_height,
                 placeholder=f"Player {i + 1} name" + (" (optional)" if i >= 3 else "")
             )
             self.input_fields.append(text_input)
+            self.type_buttons.append(
+                Button(
+                    input_x + input_width + 20,
+                    start_y + i * spacing,
+                    120,
+                    input_height,
+                    "Human",
+                    font_size=24,
+                    color=(52, 152, 219),
+                    hover_color=(41, 128, 185),
+                )
+            )
 
         # Buttons
         button_y = start_y + self.max_players * spacing + 20
@@ -184,6 +205,11 @@ class SetupScreen(Screen):
         for field in self.input_fields:
             field.handle_event(event)
 
+        for index, button in enumerate(self.type_buttons):
+            if button.handle_event(event):
+                self._toggle_player_type(index)
+                return None
+
         # Handle buttons
         if self.start_game_button.handle_event(event):
             return self._try_start_game()
@@ -193,9 +219,29 @@ class SetupScreen(Screen):
 
         return None
 
+    def _toggle_player_type(self, index: int) -> None:
+        """Toggle one player setup slot between human and AI."""
+        button = self.type_buttons[index]
+        if self.player_types[index] == HUMAN_PLAYER:
+            self.player_types[index] = AI_PLAYER
+            button.text = "AI"
+            button.color = (111, 84, 155)
+            button.hover_color = (92, 66, 137)
+        else:
+            self.player_types[index] = HUMAN_PLAYER
+            button.text = "Human"
+            button.color = (52, 152, 219)
+            button.hover_color = (41, 128, 185)
+
     def _try_start_game(self) -> Optional[str]:
         """Validate inputs and start game if valid."""
-        player_names = [field.get_text() for field in self.input_fields if field.get_text()]
+        player_entries = [
+            (field.get_text(), self.player_types[index])
+            for index, field in enumerate(self.input_fields)
+            if field.get_text()
+        ]
+        player_names = [entry[0] for entry in player_entries]
+        player_types = [entry[1] for entry in player_entries]
 
         if len(player_names) < self.min_players:
             self.error_message = f"Need at least {self.min_players} players!"
@@ -207,7 +253,7 @@ class SetupScreen(Screen):
 
         # Create game state and store it
         try:
-            game_state = new_game(player_names)
+            game_state = new_game(player_names, player_types=player_types)
             # Store in a global or pass through screen manager
             ScreenManager.game_state = game_state
             return "game"
@@ -240,6 +286,8 @@ class SetupScreen(Screen):
         # Input fields
         for field in self.input_fields:
             field.draw(self.screen)
+        for button in self.type_buttons:
+            button.draw(self.screen)
 
         # Buttons
         self.start_game_button.draw(self.screen)
@@ -265,15 +313,27 @@ class GameScreen(Screen):
         self.small_font = pygame.font.Font(None, 22)
 
         # UI Layout
-        self.sidebar_width = 350
-        self.main_area_x = self.sidebar_width + 20
+        self.sidebar_width = 280
+        self.outer_margin = 20
+        self.panel_width = 250
+        board_space = self.width - self.sidebar_width - self.panel_width - self.outer_margin * 3
+        self.board_size = min(self.height - 70, board_space)
+        self.board_x = self.sidebar_width + self.outer_margin
+        self.board_y = 28
+        self.panel_x = self.board_x + self.board_size + self.outer_margin
+        self.main_area_x = self.panel_x
+        self.board = Board(self.screen, self.board_x, self.board_y, self.board_size)
 
         # Action buttons
-        button_width = 180
-        button_height = 45
-        button_x = 20
-        button_y = 400
-        button_spacing = 60
+        button_width = self.sidebar_width - 48
+        button_height = 44
+        button_x = 24
+        button_spacing = 54
+        button_count = 5
+        button_y = self.height - 16 - (
+            button_height * button_count
+            + (button_spacing - button_height) * (button_count - 1)
+        )
 
         self.move_button = Button(
             button_x, button_y,
@@ -311,33 +371,42 @@ class GameScreen(Screen):
             hover_color=(39, 174, 96)
         )
 
+        self.quit_game_button = Button(
+            button_x, button_y + button_spacing * 4,
+            button_width, button_height,
+            "Quit to Menu",
+            font_size=24,
+            color=(127, 140, 141),
+            hover_color=(95, 106, 106)
+        )
+
         # Dropdown menus for actions
-        dropdown_x = self.main_area_x
-        dropdown_width = 250
+        dropdown_x = self.panel_x + 14
+        dropdown_width = self.panel_width - 28
         dropdown_height = 45
 
-        self.room_dropdown = DropdownMenu(
+        self.room_dropdown = PopupSelect(
             dropdown_x, 150,
             dropdown_width, dropdown_height,
             ROOMS,
             "Select Room"
         )
 
-        self.suspect_dropdown = DropdownMenu(
+        self.suspect_dropdown = PopupSelect(
             dropdown_x, 220,
             dropdown_width, dropdown_height,
             SUSPECTS,
             "Select Suspect"
         )
 
-        self.weapon_dropdown = DropdownMenu(
+        self.weapon_dropdown = PopupSelect(
             dropdown_x, 290,
             dropdown_width, dropdown_height,
             WEAPONS,
             "Select Weapon"
         )
 
-        self.room_accusation_dropdown = DropdownMenu(
+        self.room_accusation_dropdown = PopupSelect(
             dropdown_x, 360,
             dropdown_width, dropdown_height,
             ROOMS,
@@ -345,19 +414,19 @@ class GameScreen(Screen):
         )
 
         # Confirm buttons for actions
-        confirm_x = dropdown_x + dropdown_width + 20
+        confirm_x = dropdown_x
         self.confirm_move_button = Button(
-            confirm_x, 150, 120, 45,
+            confirm_x, 220, dropdown_width, 45,
             "Confirm", font_size=24
         )
 
         self.confirm_suggest_button = Button(
-            confirm_x, 290, 120, 45,
+            confirm_x, 350, dropdown_width, 45,
             "Confirm", font_size=24
         )
 
         self.confirm_accuse_button = Button(
-            confirm_x, 360, 120, 45,
+            confirm_x, 425, dropdown_width, 45,
             "Confirm", font_size=24
         )
 
@@ -365,6 +434,9 @@ class GameScreen(Screen):
         self.current_action: Optional[str] = None  # "move", "suggest", "accuse"
         self.message_box: Optional[MessageBox] = None
         self.messages: List[str] = []
+        self.cards_scroll_offset = 0
+        self.cards_scroll_rect = pygame.Rect(0, 0, 0, 0)
+        self.card_row_height = 22
 
         self._update_button_states()
 
@@ -372,8 +444,22 @@ class GameScreen(Screen):
         """Update which buttons are enabled based on game state."""
         current_player = get_current_player(self.game_state)
 
+        self.move_button.enabled = not current_player.is_eliminated
+        self.accuse_button.enabled = not current_player.is_eliminated
+        self.end_turn_button.enabled = True
+        self.quit_game_button.enabled = True
+
+        if is_ai_player(current_player):
+            self.move_button.enabled = False
+            self.suggest_button.enabled = False
+            self.accuse_button.enabled = False
+            self.end_turn_button.enabled = False
+            return
+
         # Suggest only available if in a room
-        self.suggest_button.enabled = current_player.current_room is not None
+        self.suggest_button.enabled = (
+            current_player.current_room is not None and not current_player.is_eliminated
+        )
 
         # All buttons disabled if eliminated
         if current_player.is_eliminated:
@@ -388,11 +474,18 @@ class GameScreen(Screen):
             ScreenManager.game_state = self.game_state
             return "end"
 
-        # Handle dropdowns
-        self.room_dropdown.handle_event(event)
-        self.suspect_dropdown.handle_event(event)
-        self.weapon_dropdown.handle_event(event)
-        self.room_accusation_dropdown.handle_event(event)
+        if self.quit_game_button.handle_event(event):
+            PopupSelect.close_active()
+            self.current_action = None
+            ScreenManager.game_state = None
+            return "menu"
+
+        # Handle selectors before buttons so an open popup consumes clicks.
+        if self._handle_select_event(event):
+            return None
+
+        if self._handle_sidebar_scroll(event):
+            return None
 
         # Handle action buttons
         if self.move_button.handle_event(event):
@@ -542,10 +635,130 @@ class GameScreen(Screen):
     def update(self) -> Optional[str]:
         if self.message_box and not self.message_box.update():
             self.message_box = None
+        if self.game_state.game_over:
+            ScreenManager.game_state = self.game_state
+            return "end"
+
+        current_player = get_current_player(self.game_state)
+        if is_ai_player(current_player):
+            ai_result = take_ai_turn(self.game_state)
+            self._add_ai_turn_messages(ai_result)
+            self.current_action = None
+            self._update_button_states()
+            if self.game_state.game_over:
+                ScreenManager.game_state = self.game_state
+                return "end"
         return None
 
+    def _add_ai_turn_messages(self, ai_result: AITurnResult) -> None:
+        """Add public AI actions to the game log without exposing private cards."""
+        if ai_result.skipped:
+            self._add_message(f"{ai_result.player_name} skips normal play")
+            return
+        if ai_result.dice_roll is not None:
+            self._add_message(f"{ai_result.player_name} rolled {ai_result.dice_roll}")
+        if ai_result.moved_to:
+            self._add_message(f"{ai_result.player_name} moved to {ai_result.moved_to}")
+        if ai_result.suggestion:
+            suggestion = ai_result.suggestion
+            self._add_message(
+                f"{ai_result.player_name} suggests: "
+                f"{suggestion['suspect']} with {suggestion['weapon']} "
+                f"in {suggestion['room']}"
+            )
+            if ai_result.refute_result and ai_result.refute_result.refuted:
+                self._add_message(
+                    f"{ai_result.refute_result.refuting_player} refutes the suggestion"
+                )
+            else:
+                self._add_message("No one could refute!")
+        if ai_result.accusation:
+            accusation = ai_result.accusation
+            self._add_message(
+                f"{ai_result.player_name} accuses: "
+                f"{accusation.suspect} with {accusation.weapon} in {accusation.room}"
+            )
+            if accusation.correct:
+                self._add_message(f"CORRECT! {ai_result.player_name} wins!")
+            else:
+                self._add_message(f"WRONG! {ai_result.player_name} is eliminated!")
+
+    def _handle_select_event(self, event: pygame.event.Event) -> bool:
+        """Route events to the visible popup select controls."""
+        visible_selects = self._visible_selects()
+        window_rect = self.screen.get_rect()
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            for select in visible_selects:
+                if select.rect.collidepoint(event.pos):
+                    select.handle_event(event, window_rect)
+                    return True
+
+        active_select = PopupSelect.get_active()
+        if active_select and active_select in visible_selects:
+            return active_select.handle_event(event, window_rect)
+
+        return False
+
+    def _visible_selects(self) -> List[PopupSelect]:
+        """Return selectors shown for the current action panel."""
+        if self.current_action == "move":
+            return [self.room_dropdown]
+        if self.current_action == "suggest":
+            return [self.suspect_dropdown, self.weapon_dropdown]
+        if self.current_action == "accuse":
+            return [
+                self.suspect_dropdown,
+                self.weapon_dropdown,
+                self.room_accusation_dropdown,
+            ]
+        return []
+
+    def _handle_sidebar_scroll(self, event: pygame.event.Event) -> bool:
+        """Scroll the current player's hand when the mouse is over the cards box."""
+        if event.type != pygame.MOUSEWHEEL:
+            return False
+        if not self.cards_scroll_rect.collidepoint(pygame.mouse.get_pos()):
+            return False
+
+        max_offset = self._max_cards_scroll_offset()
+        if max_offset <= 0:
+            return False
+
+        self.cards_scroll_offset = max(
+            0,
+            min(max_offset, self.cards_scroll_offset - event.y)
+        )
+        return True
+
+    def _max_cards_scroll_offset(self) -> int:
+        """Return the maximum card-row scroll offset for the visible card box."""
+        current_player = get_current_player(self.game_state)
+        visible_rows = max(1, self.cards_scroll_rect.height // self.card_row_height)
+        return max(0, len(current_player.hand) - visible_rows)
+
     def draw(self) -> None:
-        self.screen.fill((236, 240, 241))
+        self.screen.fill((218, 211, 197))
+
+        self._draw_sidebar()
+
+        selected_room = self.room_dropdown.get_selected()
+        if self.current_action == "accuse":
+            selected_room = self.room_accusation_dropdown.get_selected()
+
+        self.board.draw(
+            self.game_state,
+            active_action=self.current_action,
+            selected_room=selected_room,
+        )
+
+        self._draw_main_area()
+        self._draw_active_select_popup()
+
+        if self.message_box:
+            self.message_box.draw(self.screen)
+
+        return
 
         # Draw sidebar (player info and actions)
         sidebar_rect = pygame.Rect(0, 0, self.sidebar_width, self.height)
@@ -601,9 +814,167 @@ class GameScreen(Screen):
         if self.message_box:
             self.message_box.draw(self.screen)
 
+    def _draw_sidebar(self) -> None:
+        """Draw the left-hand player and action column."""
+        sidebar_rect = pygame.Rect(0, 0, self.sidebar_width, self.height)
+        pygame.draw.rect(self.screen, (32, 43, 54), sidebar_rect)
+        pygame.draw.line(
+            self.screen,
+            (98, 118, 136),
+            (self.sidebar_width - 1, 0),
+            (self.sidebar_width - 1, self.height),
+            2,
+        )
+
+        current_player = get_current_player(self.game_state)
+        padding = 16
+        content_x = 24
+        content_width = self.sidebar_width - 48
+        section_gap = 12
+        button_gap = 10
+        button_height = 44
+        button_count = 5
+        button_area_height = button_height * button_count + button_gap * (button_count - 1)
+        buttons_top = self.height - padding - button_area_height
+
+        y = 24
+
+        turn_label = self.small_font.render("Current Turn", True, (174, 187, 199))
+        self.screen.blit(turn_label, (content_x, y))
+
+        name = self._truncate(current_player.name, self.title_font, self.sidebar_width - 48)
+        name_text = self.title_font.render(name, True, (246, 241, 224))
+        self.screen.blit(name_text, (content_x, y + 24))
+
+        location = current_player.current_room if current_player.current_room else "Start"
+        location_label = self.normal_font.render("Location", True, (174, 187, 199))
+        location_text = self.normal_font.render(
+            self._truncate(location, self.normal_font, self.sidebar_width - 48),
+            True,
+            (246, 241, 224),
+        )
+        y += 74
+        self.screen.blit(location_label, (content_x, y))
+        self.screen.blit(location_text, (content_x, y + 28))
+
+        y += 68
+        hand_label = self.normal_font.render("Your Cards", True, (174, 187, 199))
+        self.screen.blit(hand_label, (content_x, y))
+
+        cards_y = y + 30
+        available_middle_height = max(120, buttons_top - cards_y - section_gap)
+        cards_height = min(160, max(80, int(available_middle_height * 0.45)))
+        players_height = min(
+            204,
+            max(80, available_middle_height - cards_height - section_gap)
+        )
+
+        self.cards_scroll_rect = pygame.Rect(
+            padding,
+            cards_y,
+            self.sidebar_width - padding * 2,
+            cards_height
+        )
+        self._draw_cards_scroll_box(current_player)
+
+        legend_y = self.cards_scroll_rect.bottom + section_gap
+        legend_rect = pygame.Rect(
+            padding,
+            legend_y,
+            self.sidebar_width - padding * 2,
+            players_height
+        )
+        self.board.draw_player_legend(self.screen, legend_rect, self.game_state)
+
+        self._position_sidebar_buttons(buttons_top)
+        self.move_button.draw(self.screen)
+        self.suggest_button.draw(self.screen)
+        self.accuse_button.draw(self.screen)
+        self.end_turn_button.draw(self.screen)
+        self.quit_game_button.draw(self.screen)
+
+    def _draw_cards_scroll_box(self, current_player: Player) -> None:
+        """Draw the current player's cards inside a clipped scroll area."""
+        box = self.cards_scroll_rect
+        pygame.draw.rect(self.screen, (28, 38, 48), box, border_radius=8)
+        pygame.draw.rect(self.screen, (93, 116, 137), box, 1, border_radius=8)
+
+        visible_rows = max(1, box.height // self.card_row_height)
+        max_offset = max(0, len(current_player.hand) - visible_rows)
+        self.cards_scroll_offset = max(0, min(self.cards_scroll_offset, max_offset))
+
+        previous_clip = self.screen.get_clip()
+        inner_rect = box.inflate(-16, -10)
+        self.screen.set_clip(inner_rect)
+
+        start = self.cards_scroll_offset
+        end = min(len(current_player.hand), start + visible_rows + 1)
+        card_y = inner_rect.y
+        for row_index, card in enumerate(current_player.hand[start:end]):
+            card_line = self._truncate(
+                f"- {card.name} ({card.card_type})",
+                self.small_font,
+                inner_rect.width - 8,
+            )
+            card_text = self.small_font.render(card_line, True, (236, 240, 241))
+            self.screen.blit(card_text, (inner_rect.x, card_y + row_index * self.card_row_height))
+
+        if not current_player.hand:
+            empty_text = self.small_font.render("No cards", True, (174, 187, 199))
+            self.screen.blit(empty_text, (inner_rect.x, inner_rect.y))
+
+        self.screen.set_clip(previous_clip)
+
+        if max_offset > 0:
+            self._draw_cards_scrollbar(max_offset)
+
+    def _draw_cards_scrollbar(self, max_offset: int) -> None:
+        """Draw a compact scrollbar for the card list."""
+        box = self.cards_scroll_rect
+        track_rect = pygame.Rect(box.right - 10, box.y + 8, 5, box.height - 16)
+        pygame.draw.rect(self.screen, (77, 94, 110), track_rect, border_radius=3)
+
+        visible_rows = max(1, box.height // self.card_row_height)
+        total_rows = visible_rows + max_offset
+        thumb_height = max(22, int(track_rect.height * (visible_rows / total_rows)))
+        travel = max(1, track_rect.height - thumb_height)
+        thumb_y = track_rect.y + int(travel * (self.cards_scroll_offset / max_offset))
+        thumb_rect = pygame.Rect(track_rect.x, thumb_y, track_rect.width, thumb_height)
+        pygame.draw.rect(self.screen, (174, 187, 199), thumb_rect, border_radius=3)
+
+    def _position_sidebar_buttons(self, top: int) -> None:
+        """Pin action buttons to the bottom of the sidebar."""
+        button_x = 24
+        button_width = self.sidebar_width - 48
+        button_height = 44
+        button_gap = 10
+        buttons = [
+            self.move_button,
+            self.suggest_button,
+            self.accuse_button,
+            self.end_turn_button,
+            self.quit_game_button,
+        ]
+        for index, button in enumerate(buttons):
+            button.rect = pygame.Rect(
+                button_x,
+                top + index * (button_height + button_gap),
+                button_width,
+                button_height
+            )
+
+    def _draw_active_select_popup(self) -> None:
+        """Draw the active selector popup after the form controls."""
+        active_select = PopupSelect.get_active()
+        if active_select and active_select in self._visible_selects():
+            active_select.draw_popup(self.screen)
+
     def _draw_main_area(self) -> None:
         """Draw the main area content based on current action."""
-        # Title
+        panel_rect = pygame.Rect(self.panel_x, 28, self.panel_width, self.height - 56)
+        pygame.draw.rect(self.screen, (244, 239, 226), panel_rect, border_radius=8)
+        pygame.draw.rect(self.screen, (121, 103, 83), panel_rect, 2, border_radius=8)
+
         title = "Cluedo - Make Your Move"
         if self.current_action == "move":
             title = "Move to a Room"
@@ -612,8 +983,12 @@ class GameScreen(Screen):
         elif self.current_action == "accuse":
             title = "Make an Accusation"
 
-        title_surface = self.title_font.render(title, True, (44, 62, 80))
-        self.screen.blit(title_surface, (self.main_area_x, 30))
+        title_surface = self.normal_font.render(
+            self._truncate(title, self.normal_font, self.panel_width - 28),
+            True,
+            (51, 43, 36),
+        )
+        self.screen.blit(title_surface, (self.panel_x + 14, 48))
 
         # Draw appropriate UI based on action
         if self.current_action == "move":
@@ -627,8 +1002,8 @@ class GameScreen(Screen):
 
     def _draw_move_ui(self) -> None:
         """Draw move action UI."""
-        label = self.normal_font.render("Select a room to move to:", True, (52, 73, 94))
-        self.screen.blit(label, (self.main_area_x, 120))
+        label = self.small_font.render("Select a destination room:", True, (82, 70, 57))
+        self.screen.blit(label, (self.panel_x + 14, 118))
 
         self.room_dropdown.draw(self.screen)
         self.confirm_move_button.draw(self.screen)
@@ -638,17 +1013,21 @@ class GameScreen(Screen):
         current_player = get_current_player(self.game_state)
 
         room_label = self.normal_font.render(
-            f"Room: {current_player.current_room}",
+            self._truncate(
+                f"Room: {current_player.current_room}",
+                self.normal_font,
+                self.panel_width - 28,
+            ),
             True,
-            (155, 89, 182)
+            (111, 84, 155)
         )
-        self.screen.blit(room_label, (self.main_area_x, 120))
+        self.screen.blit(room_label, (self.panel_x + 14, 118))
 
-        suspect_label = self.normal_font.render("Suspect:", True, (52, 73, 94))
-        self.screen.blit(suspect_label, (self.main_area_x, 190))
+        suspect_label = self.small_font.render("Suspect", True, (82, 70, 57))
+        self.screen.blit(suspect_label, (self.panel_x + 14, 194))
 
-        weapon_label = self.normal_font.render("Weapon:", True, (52, 73, 94))
-        self.screen.blit(weapon_label, (self.main_area_x, 260))
+        weapon_label = self.small_font.render("Weapon", True, (82, 70, 57))
+        self.screen.blit(weapon_label, (self.panel_x + 14, 264))
 
         self.suspect_dropdown.draw(self.screen)
         self.weapon_dropdown.draw(self.screen)
@@ -657,20 +1036,24 @@ class GameScreen(Screen):
     def _draw_accuse_ui(self) -> None:
         """Draw accusation action UI."""
         warning = self.normal_font.render(
-            "WARNING: Wrong accusation eliminates you!",
+            self._truncate(
+                "Wrong accusation eliminates you",
+                self.normal_font,
+                self.panel_width - 28,
+            ),
             True,
             (231, 76, 60)
         )
-        self.screen.blit(warning, (self.main_area_x, 120))
+        self.screen.blit(warning, (self.panel_x + 14, 118))
 
-        suspect_label = self.normal_font.render("Suspect:", True, (52, 73, 94))
-        self.screen.blit(suspect_label, (self.main_area_x, 190))
+        suspect_label = self.small_font.render("Suspect", True, (82, 70, 57))
+        self.screen.blit(suspect_label, (self.panel_x + 14, 194))
 
-        weapon_label = self.normal_font.render("Weapon:", True, (52, 73, 94))
-        self.screen.blit(weapon_label, (self.main_area_x, 260))
+        weapon_label = self.small_font.render("Weapon", True, (82, 70, 57))
+        self.screen.blit(weapon_label, (self.panel_x + 14, 264))
 
-        room_label = self.normal_font.render("Room:", True, (52, 73, 94))
-        self.screen.blit(room_label, (self.main_area_x, 330))
+        room_label = self.small_font.render("Room", True, (82, 70, 57))
+        self.screen.blit(room_label, (self.panel_x + 14, 334))
 
         self.suspect_dropdown.draw(self.screen)
         self.weapon_dropdown.draw(self.screen)
@@ -688,20 +1071,32 @@ class GameScreen(Screen):
         players_text = info_font.render(
             f"Players remaining: {status['players_remaining']}",
             True,
-            (52, 73, 94)
+            (82, 70, 57)
         )
-        self.screen.blit(players_text, (self.main_area_x, info_y))
+        self.screen.blit(players_text, (self.panel_x + 14, info_y))
 
         # Message history
         history_y = 200
-        history_label = self.title_font.render("Game Log:", True, (44, 62, 80))
-        self.screen.blit(history_label, (self.main_area_x, history_y))
+        history_label = self.normal_font.render("Game Log", True, (51, 43, 36))
+        self.screen.blit(history_label, (self.panel_x + 14, history_y))
 
         msg_y = history_y + 60
         for message in self.messages[-8:]:  # Show last 8 messages
-            msg_surface = self.small_font.render(message, True, (52, 73, 94))
-            self.screen.blit(msg_surface, (self.main_area_x, msg_y))
-            msg_y += 30
+            msg = self._truncate(message, self.small_font, self.panel_width - 28)
+            msg_surface = self.small_font.render(msg, True, (82, 70, 57))
+            self.screen.blit(msg_surface, (self.panel_x + 14, msg_y))
+            msg_y += 28
+
+    def _truncate(self, text: str, font: pygame.font.Font, max_width: int) -> str:
+        """Trim text to fit a UI column."""
+        if font.size(text)[0] <= max_width:
+            return text
+
+        ellipsis = "..."
+        trimmed = text
+        while trimmed and font.size(trimmed + ellipsis)[0] > max_width:
+            trimmed = trimmed[:-1]
+        return trimmed + ellipsis if trimmed else ellipsis
 
 
 class EndScreen(Screen):
