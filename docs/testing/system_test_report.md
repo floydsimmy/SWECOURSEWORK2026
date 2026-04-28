@@ -129,7 +129,7 @@ they were before.
 | ST-12d-2  | Same but check the weapon: Alice in Library, suggest Miss Scarlet + Rope.                       | `weapon_locations["Rope"] == "Library"`.                   | Confirmed (test).                 | Pass      | `test_f12_weapon_token_moves_into_suggesters_room` |
 | ST-12d-3  | Bob holds Knife; Alice in Ballroom suggests Miss Scarlet + Knife so refutation succeeds.        | After refutation completes, both tokens still in Ballroom. | Confirmed (test).                 | Pass      | `test_f12_tokens_stay_after_refutation` |
 | ST-12d-4  | New game; inspect `state.suspect_locations` / `state.weapon_locations` keys & initial values.    | All 6 suspects + 6 weapons keyed; every value is None.     | Confirmed (test).                 | Pass      | `test_f12_token_locations_initialised_for_every_card` |
-| ST-12d-GUI | Manual: launch the game, move into a room, make a suggestion, observe the in-game log line.    | Log line records the suggestion in that room.              | `[SCREENSHOT TO BE ATTACHED BY TEAM]` (per CLAUDE.md §13.5, screenshots are human-produced) | Pending evidence | (manual)    |
+| ST-12d-GUI | Manual: launch the game, move into a room, make a suggestion, observe the in-game log line.    | Log line records the suggestion in that room.              | ![F12 token movement in the suggestion log](../screenshots/f12_evidence.png) | Pending evidence | (manual)    |
 
 ### F13 — Draw
 
