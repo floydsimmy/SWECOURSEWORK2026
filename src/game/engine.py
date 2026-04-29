@@ -7,8 +7,9 @@ or any presentation concern; it is fully testable on its own.
 Public API (consumed by tests and the UI):
 
     new_game, reset_game, get_current_player, get_game_status,
-    get_turn_summary, move_to_room, make_suggestion, make_accusation,
-    next_turn, check_for_winner, validate_game_state
+    get_turn_summary, roll_die, legal_moves_for_roll, move_by_dice,
+    move_to_room, make_suggestion, make_accusation, next_turn,
+    check_for_winner, validate_game_state
 """
 
 from __future__ import annotations
@@ -38,6 +39,42 @@ from .models import (
 
 MIN_PLAYERS = 3
 MAX_PLAYERS = 6
+BOARD_GRID_SIZE = 24
+
+ROOM_LAYOUT: dict[str, tuple[int, int, int, int]] = {
+    "Kitchen": (0, 0, 6, 6),
+    "Ballroom": (7, 0, 10, 7),
+    "Conservatory": (18, 0, 6, 6),
+    "Dining Room": (0, 8, 7, 8),
+    "Billiard Room": (17, 7, 7, 5),
+    "Library": (17, 13, 7, 4),
+    "Lounge": (0, 18, 7, 6),
+    "Hall": (9, 18, 7, 6),
+    "Study": (18, 18, 6, 6),
+}
+
+CENTER_AREA = (8, 9, 8, 6)
+
+ROOM_DOORS: dict[str, list[tuple[str, int]]] = {
+    "Kitchen": [("bottom", 4)],
+    "Ballroom": [("bottom", 2), ("bottom", 7), ("left", 5), ("right", 5)],
+    "Conservatory": [("bottom", 1)],
+    "Dining Room": [("right", 2), ("right", 6)],
+    "Billiard Room": [("left", 1), ("bottom", 3)],
+    "Library": [("left", 1), ("left", 3)],
+    "Lounge": [("top", 5)],
+    "Hall": [("top", 1), ("top", 5)],
+    "Study": [("top", 1)],
+}
+
+CHARACTER_START_TILES: dict[str, tuple[int, int]] = {
+    "Miss Scarlet": (7, 23),
+    "Colonel Mustard": (7, 17),
+    "Professor Plum": (23, 17),
+    "Reverend Green": (17, 0),
+    "Mrs. Peacock": (23, 6),
+    "Mrs. White": (6, 0),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +106,7 @@ def new_game(
             name=name,
             player_type=normalised_player_types[index],
             character=SUSPECTS[index % len(SUSPECTS)],
+            board_position=CHARACTER_START_TILES[SUSPECTS[index % len(SUSPECTS)]],
         )
         for index, name in enumerate(player_names)
     ]
@@ -245,6 +283,86 @@ def get_turn_summary(state: GameState) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def roll_die(rng: random.Random | None = None) -> int:
+    """Roll one fair six-sided die."""
+    roller = rng or random
+    return roller.randint(1, 6)
+
+
+def legal_moves_for_roll(
+    state: GameState,
+    player: Player,
+    dice_roll: int,
+) -> dict[str, list]:
+    """Return hallway tiles and rooms the player may reach with this roll."""
+    _check_game_in_progress(state)
+    _check_is_current_player(state, player)
+    _check_dice_roll(dice_roll)
+    if player.is_eliminated:
+        raise ValueError("eliminated players cannot move")
+
+    occupied = _occupied_player_tiles(state, excluding=player)
+    tile_distances = _reachable_corridor_tiles(player, dice_roll, occupied)
+
+    hallway_tiles = sorted(
+        tile
+        for tile, distance in tile_distances.items()
+        if distance == dice_roll
+    )
+
+    rooms = sorted(
+        room
+        for room, door_tiles in _room_door_tiles().items()
+        if room != player.current_room
+        and any(tile_distances.get(tile, dice_roll + 1) <= dice_roll for tile in door_tiles)
+    )
+
+    return {"tiles": hallway_tiles, "rooms": rooms}
+
+
+def move_by_dice(
+    state: GameState,
+    player: Player,
+    dice_roll: int,
+    destination: str | tuple[int, int],
+) -> None:
+    """Move a player to a legal dice destination."""
+    legal_moves = legal_moves_for_roll(state, player, dice_roll)
+
+    if isinstance(destination, str):
+        if destination not in legal_moves["rooms"]:
+            raise ValueError(f"room is not reachable with this roll: {destination!r}")
+        player.current_room = destination
+        player.board_position = None
+        state.turn_history.append(
+            {
+                "action": "move",
+                "player": player.name,
+                "dice": dice_roll,
+                "room": destination,
+            }
+        )
+        return
+
+    if not _is_tile(destination):
+        raise ValueError(f"invalid board position: {destination!r}")
+
+    tile = (int(destination[0]), int(destination[1]))
+    if tile not in legal_moves["tiles"]:
+        raise ValueError(f"tile is not reachable with this roll: {tile!r}")
+
+    player.current_room = None
+    player.board_position = tile
+    state.turn_history.append(
+        {
+            "action": "move",
+            "player": player.name,
+            "dice": dice_roll,
+            "position": tile,
+        }
+    )
+
+
 def move_to_room(state: GameState, player: Player, room: str) -> None:
     _check_game_in_progress(state)
     _check_is_current_player(state, player)
@@ -252,6 +370,7 @@ def move_to_room(state: GameState, player: Player, room: str) -> None:
         raise ValueError(f"unknown room: {room!r}")
 
     player.current_room = room
+    player.board_position = None
     state.turn_history.append(
         {"action": "move", "player": player.name, "room": room}
     )
@@ -465,6 +584,140 @@ def validate_game_state(state: GameState) -> bool:
             f"current_turn_index {state.current_turn_index} is out of bounds"
         )
     return True
+
+
+# ---------------------------------------------------------------------------
+# Board movement helpers
+# ---------------------------------------------------------------------------
+
+
+def _check_dice_roll(dice_roll: int) -> None:
+    if not isinstance(dice_roll, int) or not 1 <= dice_roll <= 6:
+        raise ValueError(f"dice_roll must be between 1 and 6, got {dice_roll!r}")
+
+
+def _reachable_corridor_tiles(
+    player: Player,
+    dice_roll: int,
+    occupied: set[tuple[int, int]],
+) -> dict[tuple[int, int], int]:
+    distances: dict[tuple[int, int], int] = {}
+    queue: list[tuple[tuple[int, int], int]] = []
+
+    if player.current_room in ROOMS:
+        for tile in _room_door_tiles()[player.current_room]:
+            if tile not in occupied:
+                distances[tile] = 1
+                queue.append((tile, 1))
+    else:
+        start = _player_board_position(player)
+        distances[start] = 0
+        queue.append((start, 0))
+
+    queue_index = 0
+    while queue_index < len(queue):
+        tile, distance = queue[queue_index]
+        queue_index += 1
+
+        if distance >= dice_roll:
+            continue
+
+        for next_tile in _adjacent_corridor_tiles(tile):
+            if next_tile in occupied:
+                continue
+            next_distance = distance + 1
+            if next_distance < distances.get(next_tile, dice_roll + 1):
+                distances[next_tile] = next_distance
+                queue.append((next_tile, next_distance))
+
+    return distances
+
+
+def _player_board_position(player: Player) -> tuple[int, int]:
+    if _is_tile(player.board_position) and _is_walkable_tile(player.board_position):
+        return (int(player.board_position[0]), int(player.board_position[1]))
+    if player.character in CHARACTER_START_TILES:
+        return CHARACTER_START_TILES[player.character]
+    return CHARACTER_START_TILES["Miss Scarlet"]
+
+
+def _adjacent_corridor_tiles(tile: tuple[int, int]) -> list[tuple[int, int]]:
+    col, row = tile
+    candidates = [
+        (col + 1, row),
+        (col - 1, row),
+        (col, row + 1),
+        (col, row - 1),
+    ]
+    return [candidate for candidate in candidates if _is_walkable_tile(candidate)]
+
+
+def _room_door_tiles() -> dict[str, list[tuple[int, int]]]:
+    return {
+        room: [
+            tile
+            for tile in (
+                _external_door_tile(room, side, offset)
+                for side, offset in doors
+            )
+            if _is_walkable_tile(tile)
+        ]
+        for room, doors in ROOM_DOORS.items()
+    }
+
+
+def _external_door_tile(room: str, side: str, offset: int) -> tuple[int, int]:
+    col, row, width, height = ROOM_LAYOUT[room]
+    if side == "top":
+        return (col + offset, row - 1)
+    if side == "bottom":
+        return (col + offset, row + height)
+    if side == "left":
+        return (col - 1, row + offset)
+    return (col + width, row + offset)
+
+
+def _occupied_player_tiles(
+    state: GameState,
+    *,
+    excluding: Player,
+) -> set[tuple[int, int]]:
+    occupied: set[tuple[int, int]] = set()
+    for other in state.players:
+        if other is excluding or other.current_room is not None:
+            continue
+        tile = _player_board_position(other)
+        if _is_walkable_tile(tile):
+            occupied.add(tile)
+    return occupied
+
+
+def _is_walkable_tile(tile: tuple[int, int]) -> bool:
+    return (
+        _is_tile(tile)
+        and 0 <= tile[0] < BOARD_GRID_SIZE
+        and 0 <= tile[1] < BOARD_GRID_SIZE
+        and tile not in _blocked_board_tiles()
+    )
+
+
+def _blocked_board_tiles() -> set[tuple[int, int]]:
+    blocked: set[tuple[int, int]] = set()
+    for layout in list(ROOM_LAYOUT.values()) + [CENTER_AREA]:
+        col, row, width, height = layout
+        for blocked_col in range(col, col + width):
+            for blocked_row in range(row, row + height):
+                blocked.add((blocked_col, blocked_row))
+    return blocked
+
+
+def _is_tile(value: object) -> bool:
+    return (
+        isinstance(value, tuple)
+        and len(value) == 2
+        and isinstance(value[0], int)
+        and isinstance(value[1], int)
+    )
 
 
 # ---------------------------------------------------------------------------

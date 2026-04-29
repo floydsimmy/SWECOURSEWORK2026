@@ -24,7 +24,9 @@ from game.ai import (
 from game.engine import (
     new_game,
     get_current_player,
-    move_to_room,
+    legal_moves_for_roll,
+    move_by_dice,
+    roll_die,
     make_suggestion,
     make_accusation,
     next_turn,
@@ -338,7 +340,7 @@ class GameScreen(Screen):
         self.move_button = Button(
             button_x, button_y,
             button_width, button_height,
-            "Move to Room",
+            "Roll Dice",
             font_size=24,
             color=(155, 89, 182),
             hover_color=(142, 68, 173)
@@ -434,6 +436,9 @@ class GameScreen(Screen):
         self.current_action: Optional[str] = None  # "move", "suggest", "accuse"
         self.message_box: Optional[MessageBox] = None
         self.messages: List[str] = []
+        self.current_move_roll: Optional[int] = None
+        self.legal_move_tiles: set[tuple[int, int]] = set()
+        self.legal_move_rooms: set[str] = set()
         self.cards_scroll_offset = 0
         self.cards_scroll_rect = pygame.Rect(0, 0, 0, 0)
         self.card_row_height = 22
@@ -461,6 +466,11 @@ class GameScreen(Screen):
             current_player.current_room is not None and not current_player.is_eliminated
         )
 
+        if self.current_action == "move":
+            self.move_button.enabled = False
+            self.suggest_button.enabled = False
+            self.accuse_button.enabled = False
+
         # All buttons disabled if eliminated
         if current_player.is_eliminated:
             self.move_button.enabled = False
@@ -477,8 +487,12 @@ class GameScreen(Screen):
         if self.quit_game_button.handle_event(event):
             PopupSelect.close_active()
             self.current_action = None
+            self._clear_move_choices()
             ScreenManager.game_state = None
             return "menu"
+
+        if self.current_action == "move" and self._handle_move_click(event):
+            return None
 
         # Handle selectors before buttons so an open popup consumes clicks.
         if self._handle_select_event(event):
@@ -489,18 +503,19 @@ class GameScreen(Screen):
 
         # Handle action buttons
         if self.move_button.handle_event(event):
-            self.current_action = "move"
-            self.room_dropdown.reset()
+            self._start_dice_move()
             return None
 
         if self.suggest_button.handle_event(event):
             self.current_action = "suggest"
+            self._clear_move_choices()
             self.suspect_dropdown.reset()
             self.weapon_dropdown.reset()
             return None
 
         if self.accuse_button.handle_event(event):
             self.current_action = "accuse"
+            self._clear_move_choices()
             self.suspect_dropdown.reset()
             self.weapon_dropdown.reset()
             self.room_accusation_dropdown.reset()
@@ -509,13 +524,9 @@ class GameScreen(Screen):
         if self.end_turn_button.handle_event(event):
             next_turn(self.game_state)
             self.current_action = None
+            self._clear_move_choices()
             self._update_button_states()
             self._add_message(f"Turn passed to {get_current_player(self.game_state).name}")
-            return None
-
-        # Handle confirm buttons
-        if self.current_action == "move" and self.confirm_move_button.handle_event(event):
-            self._execute_move()
             return None
 
         if self.current_action == "suggest" and self.confirm_suggest_button.handle_event(event):
@@ -528,21 +539,75 @@ class GameScreen(Screen):
 
         return None
 
-    def _execute_move(self) -> None:
-        """Execute move to room action."""
-        room = self.room_dropdown.get_selected()
-        if not room:
-            self._show_message("Please select a room!", (231, 76, 60))
+    def _start_dice_move(self) -> None:
+        """Roll the die and show board destinations for the current player."""
+        try:
+            PopupSelect.close_active()
+            player = get_current_player(self.game_state)
+            self.current_move_roll = roll_die()
+            legal_moves = legal_moves_for_roll(
+                self.game_state,
+                player,
+                self.current_move_roll,
+            )
+            self.legal_move_tiles = set(legal_moves["tiles"])
+            self.legal_move_rooms = set(legal_moves["rooms"])
+            self.current_action = "move"
+            self._add_message(f"{player.name} rolled {self.current_move_roll}")
+
+            if not self.legal_move_tiles and not self.legal_move_rooms:
+                self._show_message("No legal moves for this roll", (231, 76, 60))
+                self.current_action = None
+                self._clear_move_choices()
+            self._update_button_states()
+        except ValueError as e:
+            self._show_message(str(e), (231, 76, 60))
+
+    def _handle_move_click(self, event: pygame.event.Event) -> bool:
+        """Move to a highlighted tile or reachable room when the board is clicked."""
+        if event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
+            return False
+        if not self.board.rect.collidepoint(event.pos):
+            return False
+
+        room = self.board.room_at_point(event.pos)
+        if room in self.legal_move_rooms:
+            self._finish_dice_move(room)
+            return True
+
+        tile = self.board.tile_at_point(event.pos)
+        if tile in self.legal_move_tiles:
+            self._finish_dice_move(tile)
+            return True
+
+        self._show_message("Choose a highlighted destination", (231, 76, 60))
+        return True
+
+    def _finish_dice_move(self, destination: str | tuple[int, int]) -> None:
+        """Apply a clicked dice destination."""
+        if self.current_move_roll is None:
             return
 
         try:
             player = get_current_player(self.game_state)
-            move_to_room(self.game_state, player, room)
-            self._add_message(f"{player.name} moved to {room}")
+            move_by_dice(self.game_state, player, self.current_move_roll, destination)
+            if isinstance(destination, str):
+                self._add_message(f"{player.name} moved to {destination}")
+            else:
+                self._add_message(
+                    f"{player.name} moved to hallway {destination[0]},{destination[1]}"
+                )
             self.current_action = None
+            self._clear_move_choices()
             self._update_button_states()
         except ValueError as e:
             self._show_message(str(e), (231, 76, 60))
+
+    def _clear_move_choices(self) -> None:
+        """Clear any pending dice movement state."""
+        self.current_move_roll = None
+        self.legal_move_tiles = set()
+        self.legal_move_rooms = set()
 
     def _execute_suggestion(self) -> None:
         """Execute suggestion action."""
@@ -644,6 +709,7 @@ class GameScreen(Screen):
             ai_result = take_ai_turn(self.game_state)
             self._add_ai_turn_messages(ai_result)
             self.current_action = None
+            self._clear_move_choices()
             self._update_button_states()
             if self.game_state.game_over:
                 ScreenManager.game_state = self.game_state
@@ -703,7 +769,7 @@ class GameScreen(Screen):
     def _visible_selects(self) -> List[PopupSelect]:
         """Return selectors shown for the current action panel."""
         if self.current_action == "move":
-            return [self.room_dropdown]
+            return []
         if self.current_action == "suggest":
             return [self.suspect_dropdown, self.weapon_dropdown]
         if self.current_action == "accuse":
@@ -742,7 +808,7 @@ class GameScreen(Screen):
 
         self._draw_sidebar()
 
-        selected_room = self.room_dropdown.get_selected()
+        selected_room = None
         if self.current_action == "accuse":
             selected_room = self.room_accusation_dropdown.get_selected()
 
@@ -750,6 +816,8 @@ class GameScreen(Screen):
             self.game_state,
             active_action=self.current_action,
             selected_room=selected_room,
+            legal_move_tiles=self.legal_move_tiles,
+            legal_move_rooms=self.legal_move_rooms,
         )
 
         self._draw_main_area()
@@ -846,7 +914,7 @@ class GameScreen(Screen):
         name_text = self.title_font.render(name, True, (246, 241, 224))
         self.screen.blit(name_text, (content_x, y + 24))
 
-        location = current_player.current_room if current_player.current_room else "Start"
+        location = self._player_location_label(current_player)
         location_label = self.normal_font.render("Location", True, (174, 187, 199))
         location_text = self.normal_font.render(
             self._truncate(location, self.normal_font, self.sidebar_width - 48),
@@ -892,6 +960,13 @@ class GameScreen(Screen):
         self.accuse_button.draw(self.screen)
         self.end_turn_button.draw(self.screen)
         self.quit_game_button.draw(self.screen)
+
+    def _player_location_label(self, player: Player) -> str:
+        if player.current_room:
+            return player.current_room
+        if player.board_position:
+            return f"Hallway {player.board_position[0]},{player.board_position[1]}"
+        return "Start"
 
     def _draw_cards_scroll_box(self, current_player: Player) -> None:
         """Draw the current player's cards inside a clipped scroll area."""
@@ -977,7 +1052,7 @@ class GameScreen(Screen):
 
         title = "Cluedo - Make Your Move"
         if self.current_action == "move":
-            title = "Move to a Room"
+            title = "Roll and Move"
         elif self.current_action == "suggest":
             title = "Make a Suggestion"
         elif self.current_action == "accuse":
@@ -1001,11 +1076,29 @@ class GameScreen(Screen):
 
     def _draw_move_ui(self) -> None:
         """Draw move action UI."""
-        label = self.small_font.render("Select a destination room:", True, (82, 70, 57))
-        self.screen.blit(label, (self.panel_x + 14, 118))
+        roll = self.current_move_roll if self.current_move_roll is not None else 0
+        roll_text = self.normal_font.render(
+            f"Dice roll: {roll}",
+            True,
+            (111, 84, 155),
+        )
+        self.screen.blit(roll_text, (self.panel_x + 14, 118))
 
-        self.room_dropdown.draw(self.screen)
-        self.confirm_move_button.draw(self.screen)
+        line_y = 166
+        destinations_text = (
+            f"Legal destinations: "
+            f"{len(self.legal_move_tiles) + len(self.legal_move_rooms)}"
+        )
+        destinations = self.small_font.render(
+            destinations_text,
+            True,
+            (82, 70, 57),
+        )
+        self.screen.blit(destinations, (self.panel_x + 14, line_y))
+
+        rooms_text = f"Reachable rooms: {len(self.legal_move_rooms)}"
+        rooms = self.small_font.render(rooms_text, True, (82, 70, 57))
+        self.screen.blit(rooms, (self.panel_x + 14, line_y + 28))
 
     def _draw_suggest_ui(self) -> None:
         """Draw suggestion action UI."""

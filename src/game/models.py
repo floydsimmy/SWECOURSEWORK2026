@@ -63,6 +63,7 @@ class Player:
     is_eliminated: bool = False
     player_type: str = HUMAN_PLAYER
     character: str | None = None
+    board_position: tuple[int, int] | None = None
     ai_notes: DetectiveNotes | None = None
 
     def __str__(self) -> str:

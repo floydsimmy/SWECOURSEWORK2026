@@ -103,6 +103,8 @@ class Board:
         game_state: Optional[GameState] = None,
         active_action: Optional[str] = None,
         selected_room: Optional[str] = None,
+        legal_move_tiles: Optional[set[tuple[int, int]]] = None,
+        legal_move_rooms: Optional[set[str]] = None,
     ) -> None:
         """Draw the board, rooms, corridors, doors, passages, and tokens."""
         self._draw_board_foundation()
@@ -113,8 +115,10 @@ class Board:
 
             active_room = get_current_player(game_state).current_room
 
-        move_options = set(ROOMS) if active_action == "move" else set()
+        move_options = set(legal_move_rooms or set()) if active_action == "move" else set()
         hover_room = self.room_at_point(pygame.mouse.get_pos())
+        if active_action == "move":
+            self._draw_legal_move_tiles(legal_move_tiles or set())
 
         for room in ROOMS:
             self._draw_room(
@@ -140,6 +144,15 @@ class Board:
             if self._grid_rect(layout).collidepoint(pos):
                 return room
         return None
+
+    def tile_at_point(self, pos: tuple[int, int]) -> Optional[tuple[int, int]]:
+        """Return the board tile under the mouse, if the point is on the board."""
+        if not self.rect.collidepoint(pos):
+            return None
+        col = int((pos[0] - self.x) // self.tile_size)
+        row = int((pos[1] - self.y) // self.tile_size)
+        tile = (col, row)
+        return tile if self._tile_in_bounds(tile) else None
 
     def draw_player_tokens(self, game_state: GameState) -> None:
         """Draw player tokens using current room or optional tile fields."""
@@ -217,7 +230,7 @@ class Board:
             initials_rect = initials_text.get_rect(center=token_center)
             screen.blit(initials_text, initials_rect)
 
-            location = player.current_room or "Start"
+            location = player.current_room or self._player_tile_label(player)
             if player.is_eliminated:
                 location = "Eliminated"
             label = self._truncate(f"{player.name} - {location}", self.font_small, rect.width - 52)
@@ -292,6 +305,14 @@ class Board:
         sub = self.font_small.render("Evidence", True, (221, 209, 185))
         sub_rect = sub.get_rect(center=(rect.centerx, rect.centery + 16))
         self.screen.blit(sub, sub_rect)
+
+    def _draw_legal_move_tiles(self, tiles: set[tuple[int, int]]) -> None:
+        for tile in tiles:
+            if not self._tile_in_bounds(tile):
+                continue
+            rect = self._tile_rect(tile[0], tile[1], pad=4)
+            pygame.draw.rect(self.screen, (80, 167, 112), rect, border_radius=4)
+            pygame.draw.rect(self.screen, (31, 92, 54), rect, 2, border_radius=4)
 
     def _draw_doors(self) -> None:
         for room, doors in DOORS.items():
@@ -434,7 +455,7 @@ class Board:
         return occupied
 
     def _start_tile(self, index: int) -> tuple[int, int]:
-        start_tiles = [(7, 17), (8, 17), (16, 17), (17, 17), (7, 7), (16, 7)]
+        start_tiles = [(7, 23), (7, 17), (23, 17), (17, 0), (23, 6), (6, 0)]
         return start_tiles[index % len(start_tiles)]
 
     def _read_player_tile(self, player: Player) -> Optional[tuple[int, int]]:
@@ -461,6 +482,12 @@ class Board:
                 return tile
 
         return None
+
+    def _player_tile_label(self, player: Player) -> str:
+        tile = self._read_player_tile(player)
+        if tile is None:
+            return "Start"
+        return f"Hallway {tile[0]},{tile[1]}"
 
     def _extract_secret_passages(self, game_state: GameState) -> list[tuple[str, str]]:
         """Read secret passage pairs only if the existing state exposes them."""
