@@ -983,12 +983,11 @@ class GameScreen(Screen):
         elif self.current_action == "accuse":
             title = "Make an Accusation"
 
-        title_surface = self.normal_font.render(
-            self._truncate(title, self.normal_font, self.panel_width - 28),
-            True,
-            (51, 43, 36),
-        )
-        self.screen.blit(title_surface, (self.panel_x + 14, 48))
+        title_y = 48
+        for line in self._wrap_text(title, self.normal_font, self.panel_width - 28):
+            title_surface = self.normal_font.render(line, True, (51, 43, 36))
+            self.screen.blit(title_surface, (self.panel_x + 14, title_y))
+            title_y += self.normal_font.get_linesize()
 
         # Draw appropriate UI based on action
         if self.current_action == "move":
@@ -1081,11 +1080,84 @@ class GameScreen(Screen):
         self.screen.blit(history_label, (self.panel_x + 14, history_y))
 
         msg_y = history_y + 60
+        log_bottom = self.height - 48
+        line_height = self.small_font.get_linesize()
+        message_gap = 8
+
         for message in self.messages[-8:]:  # Show last 8 messages
-            msg = self._truncate(message, self.small_font, self.panel_width - 28)
-            msg_surface = self.small_font.render(msg, True, (82, 70, 57))
-            self.screen.blit(msg_surface, (self.panel_x + 14, msg_y))
-            msg_y += 28
+            lines = self._wrap_text(message, self.small_font, self.panel_width - 28)
+            message_height = len(lines) * line_height
+            if msg_y + message_height > log_bottom:
+                break
+
+            for line in lines:
+                msg_surface = self.small_font.render(line, True, (82, 70, 57))
+                self.screen.blit(msg_surface, (self.panel_x + 14, msg_y))
+                msg_y += line_height
+            msg_y += message_gap
+
+    def _wrap_text(
+        self,
+        text: str,
+        font: pygame.font.Font,
+        max_width: int,
+    ) -> List[str]:
+        """Wrap text to fit inside a UI column without shortening it."""
+        if max_width <= 0:
+            return [text]
+
+        words = text.split()
+        if not words:
+            return [""]
+
+        lines: List[str] = []
+        current_line = ""
+
+        for word in words:
+            candidate = word if not current_line else f"{current_line} {word}"
+            if font.size(candidate)[0] <= max_width:
+                current_line = candidate
+                continue
+
+            if current_line:
+                lines.append(current_line)
+                current_line = ""
+
+            if font.size(word)[0] <= max_width:
+                current_line = word
+                continue
+
+            word_parts = self._split_word_to_width(word, font, max_width)
+            lines.extend(word_parts[:-1])
+            current_line = word_parts[-1]
+
+        if current_line:
+            lines.append(current_line)
+
+        return lines
+
+    def _split_word_to_width(
+        self,
+        word: str,
+        font: pygame.font.Font,
+        max_width: int,
+    ) -> List[str]:
+        """Break a single long word so it cannot overflow the log panel."""
+        parts: List[str] = []
+        current_part = ""
+
+        for char in word:
+            candidate = current_part + char
+            if current_part and font.size(candidate)[0] > max_width:
+                parts.append(current_part)
+                current_part = char
+            else:
+                current_part = candidate
+
+        if current_part:
+            parts.append(current_part)
+
+        return parts or [word]
 
     def _truncate(self, text: str, font: pygame.font.Font, max_width: int) -> str:
         """Trim text to fit a UI column."""
