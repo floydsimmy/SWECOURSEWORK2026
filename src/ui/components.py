@@ -2,10 +2,12 @@
 # =====================
 # Reusable Pygame UI elements used across multiple screens.
 #
-# Components planned:
+# Components in this file:
 #   - Button      — a clickable rectangle with a text label
+#   - TextInput   — a single-line editable text field
 #   - CardDisplay — shows a card image or name on screen
-#   - PlayerPanel — shows a player's name, character, and cards
+#   - PopupSelect — a dropdown-style picker
+#   - MessageBox  — a modal dialog with confirm/cancel buttons
 #
 # Each component is responsible for drawing itself and reporting
 # whether it has been interacted with (e.g. clicked).
@@ -209,9 +211,9 @@ class CardDisplay:
 
 
 class PopupSelect:
-    """A stable select field that opens options in a separate popup."""
+    """A dropdown menu. Only one popup is open at a time."""
 
-    active_select: Optional["PopupSelect"] = None
+    active_select = None  # current open popup, or None
 
     def __init__(
             self,
@@ -490,9 +492,7 @@ class MessageBox:
 
             for word in words:
                 test_line = ' '.join(current_line + [word])
-                test_surface = self.font.render(test_line, True, self.text_color)
-
-                if test_surface.get_width() <= self.rect.width - 20:
+                if self.font.size(test_line)[0] <= self.rect.width - 20:
                     current_line.append(word)
                 else:
                     if current_line:

@@ -1,7 +1,4 @@
-# src/main.py
-# =============
-# Entry point for the Cluedo game.
-# Initializes Pygame, creates the screen manager, and runs the main game loop.
+"""Entry point: opens the Pygame window and starts the game loop."""
 
 import pygame
 import sys

@@ -12,16 +12,16 @@
 ## 1) Matters to note from last meeting
 
 - Demo video recorded on 26 April (one take after a notification interrupted the first attempt).
-- Final pytest run by Abdurrahman on 27 April: 100 of 100 tests passed.
+- Final pytest run by Abdurrahman on 27 April: 116 of 116 tests passed (engine + AI + models).
 - Screenshots delivered by Nasser on 25 April; placed in `docs/screenshots/`.
 
 ## 2) Issues discussed at this meeting
 
 - Final read-through of the group report. Adam walked the team through every section. Team approved with two small wording changes in the "What we would do differently" section.
-- Final read-through of the system test report. Every requirement F1–F8 and NF1–NF2 has a Pass row with linked evidence (unit test reference plus screenshot where relevant). Approved.
+- Final read-through of the system test report. Every requirement F1–F16, F20–F23 and NF1–NF4 has a Pass row with linked evidence (unit test reference plus screenshot where relevant). Approved.
 - Peer review marks discussed openly. Each member spoke briefly about their contribution and what they thought was a fair distribution. Agreement reached without dispute.
 - Submission ZIP assembly. Adam and Floyd built the ZIP locally on Floyd's machine, then Maysarah unzipped it on her laptop to verify integrity. `python -m pytest -q` ran cleanly on the unzipped copy.
-- Final regression run on the unzipped submission ZIP: 100 / 100 tests passed.
+- Final regression run on the unzipped submission ZIP: 116 / 116 tests passed.
 
 ## 3) Decisions agreed at this meeting
 

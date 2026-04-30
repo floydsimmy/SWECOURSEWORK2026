@@ -1,10 +1,4 @@
-"""Card deck definitions and helpers.
-
-Defines the canonical Cluedo card sets and the deck-construction +
-verification helpers. `create_deck()` is the single source of truth
-used by the engine for setup; `verify_deck()` is the integrity check
-exposed to tests and `validate_game_state`.
-"""
+"""The 21 Cluedo cards and helpers to build / check the deck."""
 
 from __future__ import annotations
 
@@ -54,11 +48,7 @@ def create_deck() -> list[Card]:
 
 
 def verify_deck(deck: list[Card]) -> bool:
-    """Return True iff `deck` contains exactly the 21 canonical cards.
-
-    Raises ValueError on any deviation: wrong count, unknown card name,
-    duplicate card, or wrong card_type for a known name.
-    """
+    """Return True if the deck is the full 21-card set, otherwise raise ValueError."""
     if len(deck) != EXPECTED_DECK_SIZE:
         raise ValueError(
             f"deck has {len(deck)} cards, expected {EXPECTED_DECK_SIZE}"
@@ -71,15 +61,13 @@ def verify_deck(deck: list[Card]) -> bool:
             raise ValueError(f"duplicate card in deck: {card}")
         seen.add(key)
 
-    expected = (
-        {("suspect", n) for n in SUSPECTS}
-        | {("weapon", n) for n in WEAPONS}
-        | {("room", n) for n in ROOMS}
-    )
+    expected: set[tuple[str, str]] = set()
+    for n in SUSPECTS:
+        expected.add(("suspect", n))
+    for n in WEAPONS:
+        expected.add(("weapon", n))
+    for n in ROOMS:
+        expected.add(("room", n))
     if seen != expected:
-        missing = expected - seen
-        extra = seen - expected
-        raise ValueError(
-            f"deck does not match canonical set; missing={missing}, extra={extra}"
-        )
+        raise ValueError("deck does not match the canonical 21-card set")
     return True

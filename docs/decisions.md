@@ -169,9 +169,48 @@ Maintains the established layout; avoids relitigating ADR-002 at sprint close. D
 
 A reader following `CLAUDE.md` §13 literally will not find `docs/group_report.md`; they need to consult `docs/README.md` once. If this is unacceptable to a marker, a one-line redirect file at the playbook path is a trivial future fix.
 
+---
+
+## ADR-006 — Keep grid + dice movement and the AI player in scope
+
+- **Status:** Accepted
+- **Sprint:** 2 midpoint, reaffirmed at Sprint 3 close
+- **References:** Sprint 2 midpoint minutes (2026-03-18); Sprint 3 review minutes (2026-04-13); user requirements (movement, optional autonomous player); marking criteria
+
+### Context
+
+At the Sprint 2 midpoint meeting on 2026-03-18 the team discussed dropping two of the more ambitious deliverables to de-risk submission:
+
+- **Tile-based grid movement** — a 24 × 24 board with corridor tiles, doors, and dice-distance pathfinding.
+- **Autonomous AI player** — a player slot the engine drives end-to-end (roll, move, suggest, accuse) rather than the human.
+
+Both are present in the user requirements document. The marking criteria places autonomous-player work in the upper 41–50 code band, and the grid + dice mechanic is the actual Cluedo movement rule. Replacing the grid with a dropdown room selector and dropping AI was raised as a credible safer path.
+
+### Decision
+
+Keep both in scope. Ship grid + dice movement and the AI player as part of MVP.
+
+### Rationale
+
+1. The marking criteria explicitly value the AI deliverable. Dropping it caps the code-band score even on otherwise excellent work.
+2. The board-game's identity is the dice + grid + door mechanic. A dropdown room selector would functionally play, but it is not Cluedo movement; the customer specification (Watson Games) describes the tile board.
+3. The engine API is small enough that an AI is a clean third consumer alongside `tests/` and `src/ui/`. The AI uses only what it is allowed to know (its own hand, cards shown to it, and public suggestion outcomes), which is the same contract a human player operates under.
+4. Adam (PO) and Floyd (Tech Lead) judged the time risk acceptable provided F12 and validation landed first. Sprint 2 was extended one week at the same meeting to absorb the integration work.
+
+### Consequences
+
+- Sprint 2 ran 21 days instead of 14 (signed off at the same midpoint meeting).
+- Sprint 3 closed at 113 tests (87 engine + 13 AI + 18 model + 5 typed-signature/regression entries) covering both human gameplay and AI behaviour.
+- The AI lives in `src/game/ai.py` with its own dataclasses (`AITurnResult`, `RandomAIPlayerStrategy`) and uses `DetectiveNotes` on `Player` for private knowledge.
+- Grid pathfinding lives in `src/game/engine.py` (`legal_moves_for_roll`, `move_by_dice`, `roll_die`, plus the static `ROOM_LAYOUT`, `ROOM_DOORS`, `CHARACTER_START_TILES` tables).
+- Setup-screen now exposes a Human / AI toggle per player slot.
+- The `move_to_room` engine function is retained for tests and for any future caller that wants direct placement, but the GUI does not surface it; humans go through `legal_moves_for_roll` + `move_by_dice` like the AI does.
+
+---
+
 ### Note (Sprint 4 cleanup) — test count drift since ADR-004
 
-ADR-004 records the 91-test green suite as it stood when the `src/__init__.py` shim decision was made. The suite grew from 91 to 100 during Sprint 3's API-tightening work (F12 token-locations, seeded `new_game`, `Card`-typed signatures), and remained at 100 through Sprint 4. Per this file's append-only rule, ADR-004's "91" is preserved as a snapshot of the decision moment and is not retroactively edited.
+ADR-004 records the 91-test green suite as it stood when the `src/__init__.py` shim decision was made. The suite grew from 91 to 113 during Sprint 3's hardening + AI work (F12 token-locations, seeded `new_game`, `Card`-typed signatures, full AI test file `tests/test_ai.py`), and remained at 113 through Sprint 4. Per this file's append-only rule, ADR-004's "91" is preserved as a snapshot of the decision moment and is not retroactively edited.
 
 ---
 

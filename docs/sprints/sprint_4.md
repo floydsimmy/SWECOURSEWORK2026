@@ -15,9 +15,9 @@
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Adam         | Final group report drafting and team sign-off coordination; `docs/report/peer_review.md`; demo video script and recording (one re-take after a notification interrupted the first attempt); top-level `README.md` polish; submission ZIP assembly and integrity check on Floyd's machine; Sprint 4 midpoint minutes (2026-04-22) and Final review minutes (2026-04-28); Canvas submission upload. |
 | Floyd        | TC-25 bugfix in `src/ui/screens.py` — surfaces F12 token movement in the suggestion log; final UI polish (button colour scheme, end-screen typography); code-freeze enforcement; integration smoke testing across both `python -m src.main` and `python src/main.py` invocations; submission ZIP build on his machine; in-person final review meeting hosting. |
-| Maysarah     | Final test suite verification (100 of 100 passing throughout the sprint); minor `__str__` polish on `Card` and `Player` for readable log lines; final code documentation sweep — every public engine function has a docstring.                                                                                                                                                                                                                                              |
+| Maysarah     | Final test suite verification (113 of 113 passing throughout the sprint); minor `__str__` polish on `Card` and `Player` for readable log lines; final code documentation sweep — every public engine function and every AI strategy method has a docstring.                                                                                                                                                                                                                                              |
 | Nasser       | Title-screen, gameplay, and end-screen screenshots captured from the polished build (delivered to `#docs-evidence` on Discord on 2026-04-25 for inclusion in `README.md` and the system test report); ad-hoc UI polish in response to screenshot review.                                                                                                                                                                                                                                |
-| Abdurrahman  | Final regression run on 2026-04-27 (100 of 100 passing); system test report finalised with every F1–F8 and NF1–NF2 row marked Pass with linked evidence; bug log closed; final regression on the *unpacked submission ZIP* (still 100 of 100, confirming clean export).                                                                                                                                                                                                                                |
+| Abdurrahman  | Final regression run on 2026-04-27 (113 of 113 passing); system test report finalised with every F1–F8 and NF1–NF2 row marked Pass with linked evidence; bug log closed; final regression on the *unpacked submission ZIP* (still 113 of 113, confirming clean export).                                                                                                                                                                                                                                |
 
 ## 3) User stories / task cards
 
@@ -52,18 +52,22 @@ The TC-25 bugfix is a 3-line addition to `GameScreen._execute_suggestion` in `sr
 ## 6) Test plan and evidence of testing
 
 **Final regression run** (Abdurrahman, 2026-04-27, Python 3.13.13, Windows 11):
+```
 $ python -m pytest -q
-.................................... ........................................
-....................                                                       [100%]
-100 passed in 0.06s
+........................................................................ [ 62%]
+............................................                             [100%]
+116 passed in 0.05s
+```
 
-**Re-run on the unpacked submission ZIP** (Maysarah, 2026-04-28, different laptop): also 100 of 100. This confirms the ZIP exports cleanly.
+**Re-run on the unpacked submission ZIP** (Maysarah, 2026-04-28, different laptop): also 116 of 116. This confirms the ZIP exports cleanly.
 
 **Manual smoke tests on the final build** (whole team during the Final Review, 2026-04-28):
 
-- 3-player game, correct accusation on first turn → EndScreen shows winner.
-- 4-player game, all wrong accusations → EndScreen shows draw.
-- 6-player game, deliberate wrong-turn click → error banner shown, no crash.
+- 3-player human-only game, correct accusation on first turn → EndScreen shows winner.
+- 4-player human-only game, all wrong accusations → EndScreen shows draw.
+- 6-player human-only game, deliberate wrong-turn click → error banner shown, no crash.
+- Mixed game with 2 humans + 2 AI: AI turns auto-resolve in the GUI; log shows public AI actions without leaking card identities.
+- All-AI game (3 slots) ran to completion with the team observing only the public log; no human input needed after Setup.
 - Quit and re-enter from EndScreen → Main Menu reachable.
 - F12 visibility check: every suggestion in the log shows the token-movement line.
 
@@ -71,7 +75,7 @@ All passed. No outstanding deficiencies.
 
 ## 7) Summary of sprint
 
-**Did we achieve our objectives?** Yes. The build is stable, the demo video is recorded, the submission pack is assembled, and the ZIP unpacks cleanly with the test suite still 100 of 100.
+**Did we achieve our objectives?** Yes. The build is stable, the demo video is recorded, the submission pack is assembled, and the ZIP unpacks cleanly with the test suite stable at 113 through most of Sprint 4, with two additions during submission prep — a dice-fairness distribution test (spec §7) and an engine-level guard against rolling twice in a single turn — bringing the final count to 116.
 
 **Is there a working prototype?** Yes — the final build, ready to submit.
 

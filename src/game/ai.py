@@ -1,9 +1,4 @@
-"""Autonomous player support for the Cluedo engine.
-
-The first coursework AI is intentionally simple: it makes legal random
-choices and keeps private notes from only the information it is allowed
-to know. It does not inspect the hidden solution directly.
-"""
+"""A simple random AI player and the helpers it uses."""
 
 from __future__ import annotations
 
@@ -45,7 +40,7 @@ class AITurnResult:
 
 
 class RandomAIPlayerStrategy:
-    """Baseline random strategy that delegates all rule checks to engine APIs."""
+    """A random AI strategy: pick legal moves with no real planning."""
 
     def __init__(self, rng: random.Random | None = None):
         self.rng = rng or random.Random()
@@ -55,8 +50,7 @@ class RandomAIPlayerStrategy:
         return self.rng.randint(1, 6)
 
     def choose_room(self, player: Player, dice_roll: int) -> str:
-        """Choose a legal room accepted by the current simplified movement rule."""
-        del player, dice_roll
+        """Pick a random room. Player and dice_roll are unused but kept so all strategy methods have the same signature."""
         return self.rng.choice(ROOMS)
 
     def choose_suggestion(self, player: Player) -> tuple[str, str]:
@@ -71,8 +65,7 @@ class RandomAIPlayerStrategy:
         player: Player,
         matching_cards: list[Card],
     ) -> Card:
-        """Choose exactly one matching card to show."""
-        del player
+        """Choose exactly one matching card to show. Player is unused but kept so all strategy methods have the same signature."""
         return self.rng.choice(matching_cards)
 
     def choose_accusation(self, player: Player) -> tuple[str, str, str] | None:
@@ -84,9 +77,9 @@ class RandomAIPlayerStrategy:
             and len(notes.possible_rooms) == 1
         ):
             return (
-                next(iter(notes.possible_suspects)),
-                next(iter(notes.possible_weapons)),
-                next(iter(notes.possible_rooms)),
+                list(notes.possible_suspects)[0],
+                list(notes.possible_weapons)[0],
+                list(notes.possible_rooms)[0],
             )
         return None
 

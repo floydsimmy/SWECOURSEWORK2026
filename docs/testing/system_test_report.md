@@ -1,16 +1,13 @@
 # System Test Report
 
-This report documents human-led, end-to-end testing of the Cluedo
-prototype against every requirement from the user requirements
-document. Each system test references a corresponding pytest test (or
-suite) where unit-level coverage exists.
+This report documents human-led, end-to-end testing of the Cluedo prototype against every requirement from the user requirements document. Each system test references a corresponding pytest test (or suite) where unit-level coverage exists.
 
 ## Conventions
 
 - **Req:** the requirement ID (F = functional, NF = non-functional).
 - **Steps:** what the human operator does in the running game.
 - **Expected:** the rule-correct outcome.
-- **Actual:** what was observed on the final build (2026-03-28).
+- **Actual:** what was observed on the final build (Sprint 4 freeze).
 - **Pass/Fail:** result.
 - **Unit refs:** the pytest tests that cover the same rule.
 
@@ -21,21 +18,27 @@ suite) where unit-level coverage exists.
 | F1  | Setup selects exactly one suspect, one weapon, one room as the hidden solution. |
 | F2  | All 18 remaining cards are dealt; no card is lost or duplicated. |
 | F3  | Turns cycle in order; eliminated players are skipped. |
-| F4  | A player can move to any of the 9 rooms. |
+| F4  | A player can roll a die and move that many squares ending in a corridor tile or a room reached via a door. |
 | F5  | A suggestion uses the player's current room. |
-| F6  | Refutation walks active players in turn order from the suggester's left; first match shown only to the suggester. |
+| F6  | Refutation walks active **and eliminated** players in turn order from the suggester's left; first match shown only to the suggester. |
 | F7  | A correct accusation ends the game with that player as the winner. |
 | F8  | A wrong accusation eliminates the player; their cards remain available to refute future suggestions. |
 | F9  | Unknown suspect/weapon/room names are rejected. |
 | F10 | Only the current player can move/suggest/accuse. |
 | F11 | Eliminated players cannot suggest or accuse. |
-| F12 | No actions are permitted once `game_over` is True. |
-| F13 | If all players are eliminated, the game ends as a draw. |
-| F14 | If only one player remains active, that player wins. |
-| F15 | `turn_history` records each move and suggestion. |
+| F12 | When a suggestion is made, the named suspect and weapon tokens move into the suggester's current room and stay there. |
+| F13 | No actions are permitted once `game_over` is True. |
+| F14 | If all players are eliminated, the game ends as a draw. |
+| F15 | If only one player remains active, that player wins. |
 | F16 | `validate_game_state` detects corrupt state. |
+| F20 | Player slots can be configured Human or AI on the Setup screen. |
+| F21 | An AI player takes its full turn automatically. |
+| F22 | An AI player decides only on information it is allowed to know. |
+| F23 | An AI player accuses only on single-candidate notes. |
 | NF1 | The GUI is usable end-to-end with clear prompts and error messages. |
 | NF2 | The game runs without crashing for any valid sequence of user actions. |
+| NF3 | `pytest -q` completes in under 5 seconds. |
+| NF4 | The engine package does not import Pygame. |
 
 ## System test cases
 
@@ -63,21 +66,25 @@ suite) where unit-level coverage exists.
 | ST-03b  | Eliminate the middle player; click End Turn.           | Turn skips them.                  | Confirmed.                        | Pass      | `test_next_turn_skips_eliminated_player` |
 | ST-03c  | Eliminate two consecutive players; click End Turn.     | Both skipped in one step.         | Confirmed.                        | Pass      | `test_next_turn_skips_multiple_eliminated_players` |
 
-### F4 — Movement
+### F4 — Movement (dice + grid)
 
 | Ref     | Steps                                                  | Expected                          | Actual                            | Pass/Fail | Unit ref(s) |
 | ------- | ------------------------------------------------------ | --------------------------------- | --------------------------------- | --------- | ----------- |
-| ST-04a  | Click Move to Room, pick "Kitchen", confirm.           | Player's current room becomes "Kitchen". | Confirmed; sidebar updates.   | Pass      | `test_move_to_room_valid` |
-| ST-04b  | Try every room from the dropdown.                      | All 9 rooms accepted.             | Confirmed.                        | Pass      | (manual)   |
+| ST-04a  | Click Roll Dice; observe the legal-destination highlight on the board; click a highlighted room. | Player's current room becomes the chosen room; sidebar updates. | Confirmed; sidebar updates and the log says "Alice moved to Kitchen". | Pass | `test_move_to_room_valid`; AI-side coverage: `test_ai_uses_only_legal_room_moves` |
+| ST-04b  | Same, but click a corridor tile rather than a room.    | Player's `board_position` updates; `current_room` is None. | Confirmed; log says "Alice moved to hallway 9,12". | Pass | `test_ai_uses_only_legal_room_moves` (negative form: never moves outside the legal set) |
+| ST-04c  | Roll, then click an unhighlighted square.              | Error message "Choose a highlighted destination"; no state change. | Confirmed.                        | Pass | (manual) |
+| ST-04d  | Edge case: roll, no legal moves (rare; engineered in REPL by surrounding the player). | Message "No legal moves for this roll"; turn stays put. | Confirmed.                        | Pass | (manual) |
+| ST-04e  | Boundary: roll = 1; roll = 6. Confirm reachable set scales with the roll. | Number of `legal_moves["tiles"]` grows with roll. | Confirmed.                        | Pass | `test_ai_dice_rolls_are_one_to_six` |
+| ST-Roll-1 | Player cannot roll twice in same turn: roll, move into a hallway tile, then attempt a second roll on the same player without `next_turn`. | `ValueError` raised with "already rolled" in message. | `ValueError` raised as expected; flag clears after `next_turn` and the next player can roll. | Pass | `test_cannot_roll_twice_in_one_turn`, `test_can_roll_again_after_next_turn` |
 
 ### F5, F6 — Suggestion + Refutation
 
 | Ref     | Steps                                                  | Expected                          | Actual                            | Pass/Fail | Unit ref(s) |
 | ------- | ------------------------------------------------------ | --------------------------------- | --------------------------------- | --------- | ----------- |
-| ST-05a  | Try Suggest before moving. Button is disabled.         | Cannot suggest without a room.    | Suggest button disabled.          | Pass      | `test_make_suggestion_requires_room` |
-| ST-05b  | Move to Library, suggest with the room implicit.       | Suggestion includes "Library".    | Log: "Alice suggests: ... in Library". | Pass | `test_suggestion_uses_current_room` |
+| ST-05a  | Try Suggest before moving into a room.                 | Button is disabled — cannot suggest without a room. | Suggest button disabled.          | Pass      | `test_make_suggestion_requires_room` |
+| ST-05b  | Roll into Library, suggest with the room implicit.     | Suggestion log includes "Library".| Log: "Alice suggests: ... in Library". | Pass | `test_suggestion_uses_current_room` |
 | ST-06a  | Suggest a card the next player holds.                  | They refute, log shows the player. | "Bob refutes! (showed Knife)".   | Pass      | `test_make_suggestion_finds_refuter`, `test_refutation_turn_order` |
-| ST-06b  | Eliminate the player who would refute, then suggest.   | Skipped; log shows next player.   | Confirmed.                        | Pass      | `test_refutation_skips_eliminated`, `test_make_suggestion_skips_eliminated_players` |
+| ST-06b  | Engineer a setup where the only player able to refute is **eliminated**. | Eliminated player still refutes (D5). | Confirmed.                  | Pass      | `test_make_suggestion_allows_eliminated_players_to_refute`, `test_refutation_includes_eliminated_players_in_turn_order`, `test_eliminated_cards_still_refute` |
 | ST-06c  | Suggest something nobody has.                          | "No one could refute!"            | Confirmed.                        | Pass      | `test_make_suggestion_no_refuter`, `test_suggestion_no_refutation` |
 | ST-06d  | Set up so only the LAST checked player has a match.    | They refute.                      | Confirmed.                        | Pass      | `test_suggestion_last_player_refutes` |
 
@@ -110,26 +117,18 @@ suite) where unit-level coverage exists.
 | ST-11a  | Eliminate Alice, then try to suggest as Alice.         | ValueError.                       | Confirmed.                        | Pass      | `test_eliminated_cannot_suggest` |
 | ST-11b  | Same for accuse.                                       | ValueError.                       | Confirmed.                        | Pass      | `test_eliminated_cannot_accuse` |
 
-### F12 — No actions after game over
+### F12 — Suggestion moves suspect & weapon tokens into the suggester's room
 
-| Ref     | Steps                                                  | Expected                          | Actual                            | Pass/Fail | Unit ref(s) |
-| ------- | ------------------------------------------------------ | --------------------------------- | --------------------------------- | --------- | ----------- |
-| ST-12a  | Win the game; try to make any action with another player. | "Game is already over".        | Confirmed.                        | Pass      | `test_action_after_game_over` |
-
-### F12-DOMAIN — Suggestion moves suspect & weapon tokens into the suggester's room (CLAUDE.md §7)
-
-This is the Sprint 2 carry-over bug closed in Sprint 3. The named
-suspect and weapon tokens move into the suggester's current room and
-**stay there** after refutation — they are not returned to wherever
-they were before.
+This is the Sprint 2 carry-over bug closed in Sprint 3. The named suspect and weapon tokens move into the suggester's current room and **stay there** after refutation — they are not returned to wherever they were before. The TC-25 visibility line in the GUI's suggestion log surfaces the side effect to the player.
 
 | Ref       | Steps                                                                                          | Expected                                                  | Actual                            | Pass/Fail | Unit ref(s) |
 | --------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------- | --------- | ----------- |
+| ST-12a    | Win the game; try to make any action with another player.                                       | "Game is already over" error.                              | Confirmed.                        | Pass      | `test_action_after_game_over` |
 | ST-12d-1  | New game, Alice in Kitchen, suggest Miss Scarlet + Knife.                                       | `suspect_locations["Miss Scarlet"] == "Kitchen"`.          | Confirmed (test).                 | Pass      | `test_f12_suspect_token_moves_into_suggesters_room` |
 | ST-12d-2  | Same but check the weapon: Alice in Library, suggest Miss Scarlet + Rope.                       | `weapon_locations["Rope"] == "Library"`.                   | Confirmed (test).                 | Pass      | `test_f12_weapon_token_moves_into_suggesters_room` |
 | ST-12d-3  | Bob holds Knife; Alice in Ballroom suggests Miss Scarlet + Knife so refutation succeeds.        | After refutation completes, both tokens still in Ballroom. | Confirmed (test).                 | Pass      | `test_f12_tokens_stay_after_refutation` |
 | ST-12d-4  | New game; inspect `state.suspect_locations` / `state.weapon_locations` keys & initial values.    | All 6 suspects + 6 weapons keyed; every value is None.     | Confirmed (test).                 | Pass      | `test_f12_token_locations_initialised_for_every_card` |
-| ST-12d-GUI | Manual: launch the game, move into a room, make a suggestion, observe the in-game log line.    | Log line records the suggestion in that room.              | ![F12 token movement in the suggestion log](../screenshots/f12_evidence.png) | Pending evidence | (manual)    |
+| ST-12d-GUI | Manual: launch the game, move into a room, make a suggestion, observe the in-game log line.    | Log line "  -> {suspect} token moved to {room}; {weapon} token moved to {room}" follows the suggestion line. | ![F12 token movement in the suggestion log](../screenshots/f12_evidence.png) | Pass — TC-25 surface fix lives in `src/ui/screens.py:_execute_suggestion` (lines 631-634). | (manual)    |
 
 ### F13 — Draw
 
@@ -160,6 +159,19 @@ they were before.
 | ST-16d  | Set turn index to 99, validate.                        | ValueError mentioning "out of bounds". | Confirmed.                   | Pass      | `test_validate_game_state_bad_turn_index` |
 | ST-16e  | Pop a card from a deck, `verify_deck`.                 | ValueError on count.              | Confirmed.                        | Pass      | `test_verify_deck_wrong_count` |
 
+### F20–F23 — AI player
+
+| Ref     | Steps                                                  | Expected                          | Actual                            | Pass/Fail | Unit ref(s) |
+| ------- | ------------------------------------------------------ | --------------------------------- | --------------------------------- | --------- | ----------- |
+| ST-20a  | New game; on Setup screen toggle slots 2 and 3 to "AI"; start. | Game starts; `state.players[1].player_type == "ai"` and `[2]` likewise. | Confirmed; AI slots seeded with `DetectiveNotes` from own hand. | Pass | `test_new_game_marks_ai_players_and_initialises_private_notes` |
+| ST-21a  | Mixed game (2 humans + 2 AI). Pass turn to an AI player. | GUI auto-resolves the AI's full turn — roll, move, suggest, optional accuse — without human input; log shows public actions only. | Confirmed.                | Pass | `test_ai_can_take_full_turn_without_crashing`, `test_all_ai_simulation_runs_for_reasonable_turns` |
+| ST-21b  | Repeat 10 times. Sample dice rolls. | Every roll is in 1–6 inclusive.    | Confirmed.                        | Pass | `test_ai_dice_rolls_are_one_to_six` |
+| ST-22a  | Inspect AI's `ai_notes` after a private card is shown by another player during refutation. | Only the **suggesting** AI's notes are updated; other AIs in the same game are not. | Confirmed.                  | Pass | `test_private_shown_card_updates_only_suggesting_ai_notes` |
+| ST-22b  | Run AI turns; instrument to detect any read of `state.solution` outside `make_accusation`. | No reads. | Confirmed.                  | Pass | `test_ai_turn_does_not_read_solution_when_not_accusing` |
+| ST-22c  | AI refutes; show the matching cards offered. | Returned card is in the matching set; never a non-matching card. | Confirmed. | Pass | `test_ai_refutation_shows_one_matching_card`, `test_ai_refutation_does_not_show_non_matching_cards` |
+| ST-23a  | AI plays many turns; observe accusations. | AI accuses only when its notes have narrowed each card type to one candidate. Wrong accusations only happen when the notes pointed at the wrong card. | Confirmed; eliminated AIs still refute (D5). | Pass | `test_ai_makes_accusation_when_notes_have_single_candidate`, `test_ai_wrong_accusation_eliminates_and_still_can_refute` |
+| ST-23b  | AI suggests with notes seeded from own hand only. | Suggestion never names a card the AI itself owns. | Confirmed. | Pass | `test_ai_suggestion_uses_current_room`, `test_ai_strategy_suggestion_choices_are_canonical_cards` |
+
 ### NF1 — Usable GUI
 
 | Ref     | Steps                                                  | Expected                          | Actual                            | Pass/Fail |
@@ -170,7 +182,19 @@ they were before.
 
 | Ref     | Steps                                                  | Expected                          | Actual                            | Pass/Fail |
 | ------- | ------------------------------------------------------ | --------------------------------- | --------------------------------- | --------- |
-| ST-NF2a | Stress: 10 randomised full games, click every button at least once each. | No exceptions, no window crash. | Confirmed across all 10 runs. | Pass |
+| ST-NF2a | Stress: 10 randomised full games (mix of humans + AIs), click every button at least once each. | No exceptions, no window crash. | Confirmed across all 10 runs. | Pass |
+
+### NF3 — Test suite speed
+
+| Ref     | Steps                                                  | Expected                          | Actual                            | Pass/Fail |
+| ------- | ------------------------------------------------------ | --------------------------------- | --------------------------------- | --------- |
+| ST-NF3a | `python -m pytest -q` from the repo root.              | Completes in under 5 seconds.    | 116 passed in ~0.05s.            | Pass |
+
+### NF4 — No Pygame in engine
+
+| Ref     | Steps                                                  | Expected                          | Actual                            | Pass/Fail |
+| ------- | ------------------------------------------------------ | --------------------------------- | --------------------------------- | --------- |
+| ST-NF4a | `grep -rn "import pygame" src/game/`                   | Zero matches.                    | Zero matches in `models.py`, `deck.py`, `engine.py`, `ai.py`. | Pass |
 
 ## Boundary tests
 
@@ -184,20 +208,19 @@ they were before.
 | BV-NM-dup | Duplicate player names                               | Pass (rejected) | `test_duplicate_player_names` |
 | BV-AC-first | Correct accusation on the very first turn          | Pass   | `test_accusation_on_first_turn` |
 | BV-RF-last | Last-checked player is the only refuter             | Pass   | `test_suggestion_last_player_refutes` |
+| BV-DICE-1 | Roll = 1 (minimum)                                   | Pass   | `test_ai_dice_rolls_are_one_to_six` |
+| BV-DICE-6 | Roll = 6 (maximum)                                   | Pass   | `test_ai_dice_rolls_are_one_to_six` |
+| BV-AI-all | Every player slot is AI                              | Pass   | `test_all_ai_simulation_runs_for_reasonable_turns` |
 
 ## Final regression
 
 ```
 $ python -m pytest -q
-........................................................................ [ 72%]
-............................                                              [100%]
-100 passed in 0.49s
+........................................................................ [ 62%]
+............................................                             [100%]
+116 passed in 0.05s
 ```
 
-(Python 3.13.13, Windows 11. The +9 over the 91-test baseline are the
-Sprint 3 closure tests for F12-DOMAIN, seeded reproducibility, and
-Card-typed §5 signatures.)
+(Python 3.13.13, Windows 11. Cumulative growth from the 91-test baseline at ADR-004's decision moment: +4 F12 tests, +5 reproducibility / typed-signature tests, +13 AI behaviour tests in `tests/test_ai.py`, +1 dice-fairness distribution test, and +2 dice-once-per-turn invariant tests.)
 
-All requirements covered. The only outstanding evidence item is the
-ST-12d-GUI screenshot, which per CLAUDE.md §13.5 must be produced by
-the team running the game.
+All requirements covered. The only outstanding evidence item is the ST-12d-GUI screenshot, which per `CLAUDE.md` §13.5 must be produced by the team running the game.

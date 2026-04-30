@@ -12,7 +12,7 @@ This directory contains all process, design, testing, and reporting documentatio
 | Design — high level (5)        | `design/architecture.md`                                           |
 | Design — low level (5)         | `design/class_diagram.md`, `design/sequence_diagram.md`, `design/api.md` |
 | Software documentation (5)     | Docstrings inside `src/game/*.py` and `src/ui/*.py`                |
-| Testing documentation (10)     | `testing/system_test_report.md` plus the 100-test pytest suite in `tests/` |
+| Testing documentation (10)     | `testing/system_test_report.md` plus the 116-test pytest suite in `tests/` |
 | Code (50)                      | `src/`                                                              |
 | Group report (5)               | `report/group_report.md`, `report/peer_review.md`                  |
 
@@ -21,17 +21,19 @@ This directory contains all process, design, testing, and reporting documentatio
 ```
 src/
   main.py                # Pygame entry point
-  game/                  # Engine — no Pygame imports
-    models.py            # Card, Player, GameState, RefuteResult, AccusationResult
+  game/                  # Engine + AI — no Pygame imports
+    models.py            # Card, Player (+ player_type, ai_notes), GameState, DetectiveNotes, RefuteResult, AccusationResult
     deck.py              # SUSPECTS, WEAPONS, ROOMS, create_deck, verify_deck
-    engine.py            # All rules
+    engine.py            # All rules: dice + grid pathfinder (BFS), suggestion, accusation, F12 token tracking, validation
+    ai.py                # RandomAIPlayerStrategy, take_ai_turn, run_ai_simulation, DetectiveNotes helpers
   ui/                    # Pygame screens and components
-    screens.py           # MainMenu / Setup / Game / End screens + ScreenManager
-    components.py        # Button, TextInput, DropdownMenu, MessageBox, CardDisplay
-    gui.py               # Optional board rendering helpers
+    screens.py           # MainMenu / Setup (with Human/AI toggle) / Game / End screens + ScreenManager
+    components.py        # Button, TextInput, PopupSelect, MessageBox, CardDisplay
+    gui.py               # Board renderer (24x24 grid, doors, tokens, dice-move highlight)
 tests/
   test_models.py         # Unit tests for the data models
   test_engine.py         # Unit tests for the engine
+  test_ai.py             # Unit tests for the AI player module and privacy invariants
 docs/                    # This documentation pack
   README.md              # This file
   decisions.md           # Engineering Decisions Log (ADRs)
