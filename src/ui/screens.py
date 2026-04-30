@@ -462,6 +462,9 @@ class GameScreen(Screen):
             self.end_turn_button.enabled = False
             return
 
+        if self.game_state.has_rolled_this_turn:
+            self.move_button.enabled = False
+
         # Suggest only available if in a room
         self.suggest_button.enabled = (
             current_player.current_room is not None and not current_player.is_eliminated
