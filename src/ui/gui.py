@@ -1,14 +1,7 @@
-"""Board drawing helpers for the Pygame UI.
-
-This module is intentionally presentation-only. It reads the existing
-GameState/Player fields and renders a Cluedo-style board without changing any
-game rules or state.
-"""
+"""Draw the Cluedo board with rooms, doors, and player tokens."""
 
 from __future__ import annotations
 
-from collections import defaultdict
-from collections.abc import Iterable
 from typing import Optional
 
 import pygame
@@ -159,17 +152,21 @@ class Board:
         from game.engine import get_current_player
 
         current_player = get_current_player(game_state)
-        room_players: dict[str, list[tuple[int, Player]]] = defaultdict(list)
-        tile_players: dict[tuple[int, int], list[tuple[int, Player]]] = defaultdict(list)
+        room_players = {}
+        tile_players = {}
 
         for index, player in enumerate(game_state.players):
             if player.current_room in ROOM_LAYOUT:
+                if player.current_room not in room_players:
+                    room_players[player.current_room] = []
                 room_players[player.current_room].append((index, player))
                 continue
 
             tile = self._read_player_tile(player)
             if tile is None:
                 tile = self._start_tile(index)
+            if tile not in tile_players:
+                tile_players[tile] = []
             tile_players[tile].append((index, player))
 
         for room, players in room_players.items():
@@ -459,28 +456,12 @@ class Board:
         return start_tiles[index % len(start_tiles)]
 
     def _read_player_tile(self, player: Player) -> Optional[tuple[int, int]]:
-        """Read optional GUI-friendly tile coordinates if a future model has them."""
-        for attr in ("tile", "position", "board_position", "current_position"):
-            value = getattr(player, attr, None)
-            if self._is_tile_pair(value):
-                tile = (int(value[0]), int(value[1]))
-                if self._tile_in_bounds(tile):
-                    return tile
-
-        x = getattr(player, "x", None)
-        y = getattr(player, "y", None)
-        if isinstance(x, int) and isinstance(y, int):
-            tile = (x, y)
+        """Read the player's tile coordinates if they are set and in bounds."""
+        value = player.board_position
+        if self._is_tile_pair(value):
+            tile = (int(value[0]), int(value[1]))
             if self._tile_in_bounds(tile):
                 return tile
-
-        row = getattr(player, "row", None)
-        col = getattr(player, "col", None)
-        if isinstance(row, int) and isinstance(col, int):
-            tile = (col, row)
-            if self._tile_in_bounds(tile):
-                return tile
-
         return None
 
     def _player_tile_label(self, player: Player) -> str:
@@ -490,22 +471,8 @@ class Board:
         return f"Hallway {tile[0]},{tile[1]}"
 
     def _extract_secret_passages(self, game_state: GameState) -> list[tuple[str, str]]:
-        """Read secret passage pairs only if the existing state exposes them."""
-        candidates = []
-        for attr in ("secret_passages", "secret_passage_pairs", "passages"):
-            value = getattr(game_state, attr, None)
-            if value:
-                candidates.append(value)
-
-        pairs: list[tuple[str, str]] = []
-        for value in candidates:
-            if isinstance(value, dict):
-                pairs.extend((str(k), str(v)) for k, v in value.items())
-            elif isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
-                for item in value:
-                    if self._is_room_pair(item):
-                        pairs.append((str(item[0]), str(item[1])))
-        return pairs
+        """Secret passages are out of scope, so there are never any to draw."""
+        return []
 
     def _draw_dashed_line(
         self,
@@ -533,7 +500,7 @@ class Board:
             pygame.draw.line(self.screen, color, segment_start, segment_end, width)
 
     def _initials(self, name: str) -> str:
-        parts = [part for part in name.replace("-", " ").split() if part]
+        parts = [part for part in name.split() if part]
         if not parts:
             return "?"
         if len(parts) == 1:
@@ -557,8 +524,9 @@ class Board:
         return tuple((channel + grey) // 2 for channel in color)
 
     def _contrast_text_color(self, color: tuple[int, int, int]) -> tuple[int, int, int]:
-        luminance = (0.299 * color[0]) + (0.587 * color[1]) + (0.114 * color[2])
-        return (22, 24, 28) if luminance > 150 else (255, 255, 255)
+        # If the colour is bright, use dark text; otherwise use white.
+        brightness = sum(color) // 3
+        return (22, 24, 28) if brightness > 150 else (255, 255, 255)
 
     def _is_tile_pair(self, value: object) -> bool:
         return (
@@ -578,42 +546,3 @@ class Board:
             and isinstance(value[0], str)
             and isinstance(value[1], str)
         )
-
-
-class MiniBoard:
-    """A compact board view retained for any existing sidebar use."""
-
-    def __init__(self, x: int, y: int, size: int = 200):
-        self.x = x
-        self.y = y
-        self.size = size
-        self.grid_rooms = [
-            ["Kitchen", "Ballroom", "Conservatory"],
-            ["Dining Room", "Center", "Library"],
-            ["Lounge", "Hall", "Study"],
-        ]
-
-    def draw(self, screen: pygame.Surface, game_state: Optional[GameState] = None) -> None:
-        """Draw a mini board view."""
-        cell_size = self.size // 3
-
-        for row in range(3):
-            for col in range(3):
-                room = self.grid_rooms[row][col]
-                if room == "Center":
-                    continue
-
-                x = self.x + col * cell_size
-                y = self.y + row * cell_size
-                rect = pygame.Rect(x, y, cell_size - 2, cell_size - 2)
-
-                color = (100, 100, 100)
-                if game_state:
-                    from game.engine import get_current_player
-
-                    current_player = get_current_player(game_state)
-                    if current_player.current_room == room:
-                        color = (52, 152, 219)
-
-                pygame.draw.rect(screen, color, rect, border_radius=3)
-                pygame.draw.rect(screen, (255, 255, 255), rect, 1, border_radius=3)

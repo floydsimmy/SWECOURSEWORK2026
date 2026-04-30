@@ -16,10 +16,11 @@
 
 ## 2) Issues discussed at this meeting
 
-- Demo: full 4-player game with deliberate wrong moves at every step. All edge cases handled — wrong-turn errors shown in the message panel, eliminated player's turn auto-skipped, draw path working when all players accuse wrongly.
+- Demo: full 4-player mixed game (2 humans + 2 AI) with deliberate wrong moves at every step. All edge cases handled — wrong-turn errors shown in the message panel, eliminated player's turn auto-skipped, draw path working when all players accuse wrongly. AI turns auto-resolve in the GUI's update loop; the public game log shows AI moves and suggestions without leaking card identities.
 - **F12 token-position fix landed.** Suspect and weapon tokens now move into the suggester's room and stay there. Verified with new unit tests by Abdurrahman.
-- Test count now 100. Coverage of all functional requirements F1–F16 plus the non-functional NF1, NF2.
-- Adam noted that engine module docstrings now cover every public function — the software documentation element should grade well.
+- **AI player module landed.** `src/game/ai.py` with `RandomAIPlayerStrategy`, `take_ai_turn`, `run_ai_simulation`, `DetectiveNotes`. New `tests/test_ai.py` covers privacy invariants (AI never reads `state.solution`; private cards shown only update the suggesting AI's notes), correct dice/move/suggestion behaviour, and the "accuse only on single-candidate notes" rule.
+- Test count now 113. Coverage of all functional requirements F1–F16 and F20–F23 plus the non-functional NF1, NF2.
+- Adam noted that engine and AI module docstrings now cover every public function — the software documentation element should grade well.
 - Abdurrahman's written report: zero open critical bugs.
 
 ## 3) Decisions agreed at this meeting

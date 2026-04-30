@@ -3,6 +3,8 @@
 # Pytest tests for the game engine (src/game/engine.py).
 # Run from the cluedo/ directory with:  pytest
 
+import random
+
 import pytest
 
 from game.deck import ROOMS, SUSPECTS, WEAPONS
@@ -12,8 +14,10 @@ from game.engine import (
     get_current_player,
     get_game_status,
     get_turn_summary,
+    legal_moves_for_roll,
     make_accusation,
     make_suggestion,
+    move_by_dice,
     move_to_room,
     new_game,
     next_turn,
@@ -1272,11 +1276,7 @@ def test_seeded_reproducibility() -> None:
 
 
 def test_unseeded_games_can_diverge() -> None:
-    """Sanity check: without a seed, two new_game runs are not bit-identical.
-
-    Probabilistic; if this ever fires from a freak collision, re-run.
-    A solution-collision across two unseeded games is a 1-in-324 event.
-    """
+    """Without a seed, two games shouldn't all produce the same solution."""
     runs = [new_game(["Alice", "Bob", "Carol"]) for _ in range(8)]
     seen = {(s.solution["suspect"].name,
              s.solution["weapon"].name,
@@ -1290,7 +1290,7 @@ def test_unseeded_games_can_diverge() -> None:
 
 
 def test_card_typed_signatures_accepted_for_suggestion() -> None:
-    """make_suggestion accepts Card instances per the §5 contract."""
+    """make_suggestion accepts Card instances as well as strings."""
     state = new_game(["Alice", "Bob", "Carol"], seed=42)
     alice = state.players[0]
     alice.current_room = "Kitchen"
@@ -1338,3 +1338,103 @@ def test_card_with_wrong_card_type_rejected() -> None:
     wrong = Card(card_type="weapon", name="Knife")
     with pytest.raises(ValueError, match="suspect"):
         make_suggestion(state, alice, suspect=wrong, weapon="Rope")
+
+
+# ---------------------------------------------------------------------------
+# Dice fairness — F4 / NF2
+# ---------------------------------------------------------------------------
+
+def test_roll_die_fairness_seeded() -> None:
+    """6000 seeded rolls of roll_die produce a fair-six distribution.
+
+    Per-face count must be within 5 sigma of the expected 1000
+    (sigma = sqrt(6000 * 1/6 * 5/6) ~= 28.87, so 5 sigma ~= 144).
+    The chi-squared statistic across the six faces must fall below
+    20.515, the 0.999 quantile of chi-squared with 5 degrees of
+    freedom — a tighter cross-check that catches bias the per-bin
+    bound would miss.
+
+    Uses a seeded random.Random so the assertion is deterministic
+    and zero-flakiness across runs.
+    """
+    from game.engine import roll_die
+
+    rng = random.Random(20260430)
+    rolls = 6000
+    counts: dict[int, int] = {face: 0 for face in range(1, 7)}
+    for _ in range(rolls):
+        face = roll_die(rng)
+        assert 1 <= face <= 6
+        counts[face] += 1
+
+    expected = rolls / 6  # 1000.0
+    for face, observed in counts.items():
+        assert abs(observed - expected) <= 145, (
+            f"face {face} count {observed} more than 5 sigma from {expected}"
+        )
+
+    chi_squared = sum(
+        (observed - expected) ** 2 / expected for observed in counts.values()
+    )
+    assert chi_squared < 20.515, (
+        f"chi-squared {chi_squared:.3f} exceeds 0.999 quantile 20.515"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Dice-once-per-turn invariant — F4 (engine guard)
+# ---------------------------------------------------------------------------
+
+
+def _pick_dice_destination(state: GameState, player: Player, dice_roll: int):
+    """Return any legal destination for this roll (prefers a tile, then a room).
+
+    Helper for the dice-once-per-turn tests below — keeps the assertion
+    code focused on the invariant rather than board geometry.
+    """
+    legal = legal_moves_for_roll(state, player, dice_roll)
+    if legal["tiles"]:
+        return legal["tiles"][0]
+    if legal["rooms"]:
+        return legal["rooms"][0]
+    raise AssertionError(
+        f"no legal moves for {player.name} with dice_roll={dice_roll}"
+    )
+
+
+def test_cannot_roll_twice_in_one_turn() -> None:
+    """A player cannot call move_by_dice twice in the same turn.
+
+    The engine tracks has_rolled_this_turn on GameState; the second
+    move_by_dice before next_turn must raise ValueError.
+    """
+    state = new_game(["Alice", "Bob", "Carol"], seed=42)
+    alice = state.players[0]
+
+    dice_roll = 3
+    first_destination = _pick_dice_destination(state, alice, dice_roll)
+    move_by_dice(state, alice, dice_roll, first_destination)
+    assert state.has_rolled_this_turn is True
+
+    with pytest.raises(ValueError) as excinfo:
+        move_by_dice(state, alice, dice_roll, first_destination)
+    assert "already rolled" in str(excinfo.value).lower()
+
+
+def test_can_roll_again_after_next_turn() -> None:
+    """next_turn clears has_rolled_this_turn so the new player can roll."""
+    state = new_game(["Alice", "Bob", "Carol"], seed=42)
+    alice = state.players[0]
+
+    dice_roll = 3
+    first_destination = _pick_dice_destination(state, alice, dice_roll)
+    move_by_dice(state, alice, dice_roll, first_destination)
+
+    next_turn(state)
+    assert state.has_rolled_this_turn is False
+
+    bob = get_current_player(state)
+    assert bob.name == "Bob"
+    second_destination = _pick_dice_destination(state, bob, dice_roll)
+    move_by_dice(state, bob, dice_roll, second_destination)
+    assert state.has_rolled_this_turn is True

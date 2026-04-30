@@ -2,8 +2,9 @@
 # ==================
 # Manages which screen is currently being shown.
 #
-# Screens planned:
+# Screens in this file:
 #   - MainMenuScreen  — the opening screen with a "Start Game" button
+#   - SetupScreen     — player name entry and game configuration
 #   - GameScreen      — the main gameplay view (board, player info, etc.)
 #   - EndScreen       — shown when the game is won or lost
 #
@@ -620,7 +621,7 @@ class GameScreen(Screen):
 
         try:
             player = get_current_player(self.game_state)
-            # §5 contract: pass Card instances, not bare strings.
+            # Build Card objects to pass to the engine.
             suspect_card = Card(card_type="suspect", name=suspect)
             weapon_card = Card(card_type="weapon", name=weapon)
             result = make_suggestion(self.game_state, player, suspect_card, weapon_card)
@@ -628,7 +629,7 @@ class GameScreen(Screen):
             room = player.current_room
             msg = f"{player.name} suggests: {suspect} with {weapon} in {room}"
             self._add_message(msg)
-            # F12 visibility: surface the engine's token-move side effect.
+            # F12: show that the tokens moved into the room.
             self._add_message(
                 f"  -> {suspect} token moved to {room}; {weapon} token moved to {room}"
             )
@@ -655,7 +656,7 @@ class GameScreen(Screen):
 
         try:
             player = get_current_player(self.game_state)
-            # §5 contract: pass Card instances, not bare strings.
+            # Build Card objects to pass to the engine.
             suspect_card = Card(card_type="suspect", name=suspect)
             weapon_card = Card(card_type="weapon", name=weapon)
             room_card = Card(card_type="room", name=room)
@@ -823,62 +824,6 @@ class GameScreen(Screen):
         self._draw_main_area()
         self._draw_active_select_popup()
 
-        if self.message_box:
-            self.message_box.draw(self.screen)
-
-        return
-
-        # Draw sidebar (player info and actions)
-        sidebar_rect = pygame.Rect(0, 0, self.sidebar_width, self.height)
-        pygame.draw.rect(self.screen, (52, 73, 94), sidebar_rect)
-
-        # Current player info
-        current_player = get_current_player(self.game_state)
-
-        # Player name
-        name_text = self.title_font.render(current_player.name, True, (236, 240, 241))
-        self.screen.blit(name_text, (20, 20))
-
-        # Current room
-        room_label = self.normal_font.render("Current Room:", True, (189, 195, 199))
-        self.screen.blit(room_label, (20, 80))
-
-        room_text = current_player.current_room if current_player.current_room else "None"
-        room_value = self.normal_font.render(room_text, True, (236, 240, 241))
-        self.screen.blit(room_value, (20, 110))
-
-        # Player hand
-        hand_label = self.normal_font.render("Your Cards:", True, (189, 195, 199))
-        self.screen.blit(hand_label, (20, 160))
-
-        # Draw cards in hand
-        card_y = 200
-        for i, card in enumerate(current_player.hand[:5]):  # Show first 5
-            card_text = self.small_font.render(
-                f"• {card.name} ({card.card_type})",
-                True,
-                (236, 240, 241)
-            )
-            self.screen.blit(card_text, (25, card_y + i * 25))
-
-        if len(current_player.hand) > 5:
-            more_text = self.small_font.render(
-                f"... and {len(current_player.hand) - 5} more",
-                True,
-                (189, 195, 199)
-            )
-            self.screen.blit(more_text, (25, card_y + 5 * 25))
-
-        # Action buttons
-        self.move_button.draw(self.screen)
-        self.suggest_button.draw(self.screen)
-        self.accuse_button.draw(self.screen)
-        self.end_turn_button.draw(self.screen)
-
-        # Draw main area based on current action
-        self._draw_main_area()
-
-        # Draw message box if active
         if self.message_box:
             self.message_box.draw(self.screen)
 

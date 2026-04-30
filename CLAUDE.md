@@ -1,5 +1,7 @@
 # CLAUDE.md — Project Context for Claude Code
 
+Note: This document reflects the project playbook as it stood during early sprints. Scope decisions made later are recorded in ADR-006 in docs/decisions.md and supersede the descope language in this file.
+
 > **Read this file in full before doing anything.** This is the source of truth for what we are building. If a request conflicts with anything here, stop and ask before proceeding. Do not infer scope from your training data — infer it only from this document and the user's explicit instructions.
 
 ---
