@@ -21,3 +21,18 @@ src/docs/
 dist/
 build/
 *.egg-info/
+
+#virtual environment
+.venv/
+
+documents
+Cluedo_Team53_Documentation_docx/
+.claude
+cluster_b_no_b2.md
+code_review.md
+CURRENT_STATE.md
+defensibility_findings.md
+hallucination_findings.md
+marker_findings.md
+spec_compliance_findings.md
+video_script.md

@@ -1,15 +1,7 @@
-"""Cluedo game engine.
+"""Cluedo game engine — all the rules live here.
 
-All gameplay rules live here. Functions take a GameState plus arguments
-and mutate the state in place. The engine knows nothing about Pygame
-or any presentation concern; it is fully testable on its own.
-
-Public API (consumed by tests and the UI):
-
-    new_game, reset_game, get_current_player, get_game_status,
-    get_turn_summary, roll_die, legal_moves_for_roll, move_by_dice,
-    move_to_room, make_suggestion, make_accusation, next_turn,
-    check_for_winner, validate_game_state
+The engine is pure Python (no Pygame), so the tests can run it
+without opening a window.
 """
 
 from __future__ import annotations
@@ -77,9 +69,7 @@ CHARACTER_START_TILES: dict[str, tuple[int, int]] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Game setup
-# ---------------------------------------------------------------------------
+# --- Game setup ---
 
 
 def new_game(
@@ -230,9 +220,7 @@ def _deal_round_robin(
         players[i % len(players)].hand.append(card)
 
 
-# ---------------------------------------------------------------------------
-# Player / turn queries
-# ---------------------------------------------------------------------------
+# --- Player / turn queries ---
 
 
 def get_current_player(state: GameState) -> Player:
@@ -245,6 +233,7 @@ def next_turn(state: GameState) -> None:
     If every player is eliminated this would loop forever — guard against
     that by stopping after one full pass and leaving the index unchanged.
     """
+    state.has_rolled_this_turn = False
     n = len(state.players)
     for step in range(1, n + 1):
         candidate = (state.current_turn_index + step) % n
@@ -278,9 +267,7 @@ def get_turn_summary(state: GameState) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# Actions
-# ---------------------------------------------------------------------------
+# --- Actions ---
 
 
 def roll_die(rng: random.Random | None = None) -> int:
@@ -326,7 +313,13 @@ def move_by_dice(
     dice_roll: int,
     destination: str | tuple[int, int],
 ) -> None:
-    """Move a player to a legal dice destination."""
+    """Move a player to a legal dice destination.
+
+    A player may only roll-and-move once per turn; calling this a second
+    time before next_turn raises ValueError.
+    """
+    if state.has_rolled_this_turn:
+        raise ValueError("Player has already rolled this turn")
     legal_moves = legal_moves_for_roll(state, player, dice_roll)
 
     if isinstance(destination, str):
@@ -342,6 +335,7 @@ def move_by_dice(
                 "room": destination,
             }
         )
+        state.has_rolled_this_turn = True
         return
 
     if not _is_tile(destination):
@@ -361,6 +355,7 @@ def move_by_dice(
             "position": tile,
         }
     )
+    state.has_rolled_this_turn = True
 
 
 def move_to_room(state: GameState, player: Player, room: str) -> None:
@@ -385,22 +380,12 @@ def make_suggestion(
 ) -> RefuteResult:
     """Make a suggestion in the current player's room.
 
-    F12 (domain): the named suspect and weapon tokens are moved into
-    the suggester's current room and remain there after refutation
-    completes — they are NOT returned to wherever they were. This is
-    written to `state.suspect_locations` / `state.weapon_locations`
-    BEFORE the refutation walk so positions persist regardless of
-    refutation outcome.
+    Moves the named suspect and weapon tokens into the room (F12),
+    then asks each other player in turn order to refute. Returns the
+    first refutation, or RefuteResult(refuted=False) if none.
 
-    Refutation walks players in turn order starting immediately after
-    the suggester. Eliminated players are still checked because wrong
-    accusers stop taking normal turns but keep showing cards when they
-    can refute. The first matching card is shown; the suggester's turn does NOT
-    advance — they may still choose to accuse.
-
-    `suspect` and `weapon` accept either a `Card` (per the §5 contract)
-    or a string (back-compat for existing callers); names are validated
-    against the canonical SUSPECTS / WEAPONS lists either way.
+    Eliminated players can still refute. The suggester's turn does not
+    end — they may still accuse afterwards.
     """
     _check_game_in_progress(state)
     _check_is_current_player(state, player)
@@ -418,8 +403,8 @@ def make_suggestion(
 
     room = player.current_room
 
-    # F12: move the suspect and weapon tokens into the suggester's room
-    # BEFORE the refutation walk — they stay here whatever happens next.
+    # F12: move the suspect and weapon tokens into the room.
+    # We do this before the refutation loop so they stay here.
     state.suspect_locations[suspect_name] = room
     state.weapon_locations[weapon_name] = room
 
@@ -468,15 +453,10 @@ def make_accusation(
     weapon: Card | str,
     room: Card | str,
 ) -> AccusationResult:
-    """Make a final accusation. Always advances the turn afterwards.
+    """Make an accusation. Right answer wins; wrong answer eliminates
+    the player. Either way the turn passes to the next player.
 
-    A correct accusation ends the game with `player` as the winner. A
-    wrong accusation eliminates `player`; if that empties the active
-    pool, the game ends with no winner (a draw).
-
-    `suspect`, `weapon`, and `room` accept either a `Card` (per §5)
-    or a string (back-compat); names are validated against the
-    canonical lists either way.
+    If everyone has been eliminated the game ends in a draw.
     """
     _check_game_in_progress(state)
     _check_is_current_player(state, player)
@@ -546,9 +526,7 @@ def check_for_winner(state: GameState) -> Player | None:
     return None
 
 
-# ---------------------------------------------------------------------------
-# Validation
-# ---------------------------------------------------------------------------
+# --- Validation ---
 
 
 def validate_game_state(state: GameState) -> bool:
@@ -586,9 +564,7 @@ def validate_game_state(state: GameState) -> bool:
     return True
 
 
-# ---------------------------------------------------------------------------
-# Board movement helpers
-# ---------------------------------------------------------------------------
+# --- Board movement helpers ---
 
 
 def _check_dice_roll(dice_roll: int) -> None:
@@ -653,17 +629,15 @@ def _adjacent_corridor_tiles(tile: tuple[int, int]) -> list[tuple[int, int]]:
 
 
 def _room_door_tiles() -> dict[str, list[tuple[int, int]]]:
-    return {
-        room: [
-            tile
-            for tile in (
-                _external_door_tile(room, side, offset)
-                for side, offset in doors
-            )
-            if _is_walkable_tile(tile)
-        ]
-        for room, doors in ROOM_DOORS.items()
-    }
+    result: dict[str, list[tuple[int, int]]] = {}
+    for room, doors in ROOM_DOORS.items():
+        tiles: list[tuple[int, int]] = []
+        for side, offset in doors:
+            tile = _external_door_tile(room, side, offset)
+            if _is_walkable_tile(tile):
+                tiles.append(tile)
+        result[room] = tiles
+    return result
 
 
 def _external_door_tile(room: str, side: str, offset: int) -> tuple[int, int]:
@@ -720,9 +694,7 @@ def _is_tile(value: object) -> bool:
     )
 
 
-# ---------------------------------------------------------------------------
-# Internal guards
-# ---------------------------------------------------------------------------
+# --- Internal guards ---
 
 
 def _check_game_in_progress(state: GameState) -> None:
@@ -739,12 +711,7 @@ def _check_is_current_player(state: GameState, player: Player) -> None:
 
 
 def _name_of(card_or_str: Card | str, *, expected_type: str, field: str) -> str:
-    """Coerce a `Card` or a bare name string to a name.
-
-    Per §5 the contract is `Card`. Existing string call sites are
-    accepted unchanged. If a `Card` is passed with the wrong
-    `card_type`, raise — that is a programming error in the caller.
-    """
+    """Return the card name. Accepts a Card or a plain string."""
     if isinstance(card_or_str, Card):
         if card_or_str.card_type != expected_type:
             raise ValueError(
@@ -752,8 +719,4 @@ def _name_of(card_or_str: Card | str, *, expected_type: str, field: str) -> str:
                 f"got a {card_or_str.card_type} card ({card_or_str.name!r})"
             )
         return card_or_str.name
-    if isinstance(card_or_str, str):
-        return card_or_str
-    raise TypeError(
-        f"{field} must be a Card or str, got {type(card_or_str).__name__}"
-    )
+    return card_or_str

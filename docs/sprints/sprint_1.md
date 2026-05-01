@@ -14,8 +14,8 @@
 | Team member  | Key contribution(s)                                                                                                                                            |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Adam         | Repository scaffold and folder structure; user stories F1–F8 with acceptance criteria; Discord server setup with channels (`#announcements`, `#standup`, `#dev`, `#qa-testing`, `#decisions`); kickoff meeting minutes (2026-02-25), Sprint 1 midpoint minutes (2026-03-04), and Sprint 1 review minutes (2026-03-09); decision log entries.                                                                                                                  |
-| Floyd        | Pygame skeleton — `main.py`, `ScreenManager`, `MainMenuScreen`; engine API contract co-author with Maysarah; Python and Git setup support for team members who hit installation issues at the Sprint 1 midpoint.                                                                                                                                                                                                                                          |
-| Maysarah     | `models.py` (`Card`, `Player`, `GameState`, `RefuteResult`, `AccusationResult` dataclasses); `deck.py` (canonical card constants, `create_deck`, `verify_deck`); `engine.new_game`, `next_turn`, `get_current_player`; deal-and-solution bugfix during the Sprint 1 review demo.                                                                                                                                                                                  |
+| Floyd        | Owned the Pygame skeleton — `main.py`, `ScreenManager`, `MainMenuScreen`; engine API contract co-author with Maysarah; Python and Git setup support for team members who hit installation issues at the Sprint 1 midpoint.                                                                                                                                                                                                                                          |
+| Maysarah     | Led the implementation of `models.py` (`Card`, `Player`, `GameState`, `RefuteResult`, `AccusationResult` dataclasses); owned `deck.py` (canonical card constants, `create_deck`, `verify_deck`); led the implementation of `engine.new_game`, `next_turn`, `get_current_player`; deal-and-solution bugfix during the Sprint 1 review demo.                                                                                                                                                                                  |
 | Nasser       | Initial title-screen mockups; colour palette exploration (flat dark-blue palette adopted by the team).                                                                                                                                                                                                                                                                                                                                                       |
 | Abdurrahman  | First pass on the system test report template using requirement IDs F1–F8; unit tests for F1–F3.                                                                                                                                                                                                                                                                                                                                                            |
 
@@ -50,8 +50,8 @@ Task cards (priority H = high, M = medium):
 
 **Non-functional (mandatory — "shall"):**
 
-- NF1 — `pytest -q` shall complete in under 5 seconds.
-- NF2 — engine code shall not import Pygame (the engine must be testable without a display).
+- NF3 — `pytest -q` shall complete in under 5 seconds.
+- NF4 — engine code shall not import Pygame (the engine must be testable without a display).
 
 **Domain:**
 
@@ -91,7 +91,7 @@ Unit tests added in Sprint 1, mapped to requirement IDs:
 | `test_deal_fairness_six_players`                    | F2      | Pass   |
 | `test_new_game_rejects_*` (4 tests)                 | F0a     | Pass   |
 
-`pytest -q` reports 33 passed at the end of Sprint 1.
+By the time Sprint 1 work was consolidated, the engine had core coverage of F1–F3 with `pytest -q` running green.
 
 System test mapping rows for F1–F3 are in `docs/testing/system_test_report.md`.
 

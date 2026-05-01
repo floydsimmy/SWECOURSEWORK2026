@@ -32,7 +32,7 @@
 ## 3) Decisions agreed at this meeting
 
 - Recording slot for the demo video: Saturday 26 April, recorded by Adam. (Action: Adam.)
-- Final pytest regression on 27 April. If 100/100 green, freeze main. (Action: Floyd, Abdurrahman.)
+- Final pytest regression on 27 April. If 116/116 green, freeze main. (Action: Floyd, Abdurrahman.)
 - Nasser to capture title-screen, gameplay, and end-screen screenshots by 25 April and post in `#docs-evidence`. (Action: Nasser, async.)
 - Final review meeting on 28 April for full team sign-off and peer review agreement.
 

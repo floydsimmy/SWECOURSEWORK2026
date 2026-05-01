@@ -48,7 +48,7 @@ Yes. The current build supports a Pygame window with a title screen and basic ga
 
 ## Q6: Is there anything you need feedback for from your customer?
 
-- Confirmation that an AI player is not required for a passing grade. The team has descoped AI based on a reading of the marking criteria; a sanity check would be welcome.
+- Confirmation that the AI player's behaviour as the team plans to ship it (random over what the AI legally knows; accuse only on single-candidate notes; never reads the hidden solution) is what the customer expects from "an autonomous-player option". The team committed to ship the AI in Sprint 3 (ADR-006); a sanity check on behaviour expectations would be welcome before then.
 - Any preference on font / colour scheme — currently using a flat dark-blue palette.
 
 ## Q7: Are there any other factors that are having an effect on your team's ability to deliver on this group project?

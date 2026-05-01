@@ -1,9 +1,4 @@
-"""Data models for the Cluedo game.
-
-Holds the dataclasses that describe game state. All gameplay rules live
-in `engine.py`; these types are pure data and have no behaviour beyond
-their own representation.
-"""
+"""Dataclasses for the cards, players, and game state."""
 
 from __future__ import annotations
 
@@ -16,11 +11,7 @@ PLAYER_TYPES = {HUMAN_PLAYER, AI_PLAYER}
 
 @dataclass
 class Card:
-    """A single Cluedo card.
-
-    `card_type` is one of "suspect", "weapon", or "room". `name` is the
-    display name (e.g. "Miss Scarlet", "Knife", "Kitchen").
-    """
+    """A Cluedo card. card_type is 'suspect', 'weapon' or 'room'."""
 
     card_type: str
     name: str
@@ -50,12 +41,7 @@ class DetectiveNotes:
 
 @dataclass
 class Player:
-    """A player at the table.
-
-    `current_room` is None until the player moves into a room.
-    `is_eliminated` flips to True after a wrong accusation; their hand
-    stays intact so they can still refute future suggestions.
-    """
+    """A player: name, hand, and which room they're in."""
 
     name: str
     hand: list[Card] = field(default_factory=list)
@@ -73,14 +59,10 @@ class Player:
 
 @dataclass
 class GameState:
-    """Whole-game state passed between engine functions.
+    """All state for one game: players, solution, whose turn it is.
 
-    `suspect_locations` and `weapon_locations` track where each suspect
-    or weapon TOKEN currently sits on the board, keyed by card name.
-    A value of None means the token has not yet been placed in a room.
-    Required by F12 (domain): a suggestion moves the named suspect and
-    weapon tokens into the suggester's current room and leaves them
-    there.
+    suspect_locations / weapon_locations track which room each token is
+    in (None if not placed yet) — needed for F12.
     """
 
     players: list[Player]
@@ -89,6 +71,7 @@ class GameState:
     started: bool = False
     game_over: bool = False
     winner: str | None = None
+    has_rolled_this_turn: bool = False
     turn_history: list[dict] = field(default_factory=list)
     suspect_locations: dict[str, str | None] = field(default_factory=dict)
     weapon_locations: dict[str, str | None] = field(default_factory=dict)
